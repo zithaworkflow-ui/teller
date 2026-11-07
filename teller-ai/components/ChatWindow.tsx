@@ -1689,14 +1689,6 @@ export default function ChatWindow() {
                         Open in Google Maps
                       </a>
                     )}
-                    <button
-                      type="button"
-                      onClick={() => switchMode("teller")}
-                      className="inline-flex items-center gap-2 rounded-lg border border-neutral-700 px-3 py-2 text-sm text-neutral-200 transition hover:bg-neutral-800"
-                    >
-                      <ArrowLeft size={15} aria-hidden="true" />
-                      Back to chat
-                    </button>
                   </div>
                 </div>
                 {activeMapQuery && GOOGLE_MAPS_EMBED_API_KEY ? (
@@ -1743,14 +1735,6 @@ export default function ChatWindow() {
                       Search Gmail and review your calendar. Drafts and new events always wait for your confirmation.
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => switchMode("teller")}
-                    className="inline-flex items-center gap-2 rounded-lg border border-neutral-700 px-3 py-2 text-sm text-neutral-200 transition hover:bg-neutral-800"
-                  >
-                    <ArrowLeft size={15} aria-hidden="true" />
-                    Back to chat
-                  </button>
                   {googleConnection?.connected && hasSession ? (
                     <button
                       type="button"
