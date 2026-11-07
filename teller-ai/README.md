@@ -20,7 +20,7 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 ## Image generation
 
-Text chat, conversation titles, and CyberAgent try NVIDIA's Nemotron 3.5 Bolt E4B model first, then fall back to OpenRouter's `openrouter/auto` router if NVIDIA fails. Set both server-side `NVIDIA_API_KEY` and `OPENROUTER_API_KEY` to enable both providers; either provider can serve requests on its own. NVIDIA's endpoint defaults to `https://integrate.api.nvidia.com/v1/chat/completions`; override it with `NVIDIA_API_BASE_URL` and set the chat model with `NVIDIA_CHAT_MODEL` (default `nvidia/nemotron-3.5-bolt-e4b`). Image analysis and audio transcription continue using `NVIDIA_MODEL`, so that model configuration is unchanged. `AI_API_KEY` is accepted as a legacy NVIDIA key variable.
+Text chat, conversation titles, and CyberMail try NVIDIA's Nemotron 3.5 Bolt E4B model first, then fall back to OpenRouter's `openrouter/auto` router if NVIDIA fails. Set both server-side `NVIDIA_API_KEY` and `OPENROUTER_API_KEY` to enable both providers; either provider can serve requests on its own. NVIDIA's endpoint defaults to `https://integrate.api.nvidia.com/v1/chat/completions`; override it with `NVIDIA_API_BASE_URL` and set the chat model with `NVIDIA_CHAT_MODEL` (default `nvidia/nemotron-3.5-bolt-e4b`). Image analysis and audio transcription continue using `NVIDIA_MODEL`, so that model configuration is unchanged. `AI_API_KEY` is accepted as a legacy NVIDIA key variable.
 
 Image generation uses Cloudflare Workers AI's `@cf/black-forest-labs/flux-2-klein-4b` model by default. Set the server-only `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` values; the token needs Workers AI Read and Edit permissions. `IMAGE_GENERATION_MODEL` can override the model. Generated images default to 1024 × 1024. The app uses the configured NVIDIA vision model to caption generated images and answer follow-up questions about them; keep `NVIDIA_API_KEY` configured for those features. Users can request edits in the same conversation, and the app uses the latest generated image as the reference. JPEG, PNG, and WebP uploads up to 3 MB are analyzed when the prompt asks a question and used as reference images when the prompt asks for an edit. Reference images are resized to fit within 511 × 511 pixels for FLUX.2 Klein.
 
@@ -30,9 +30,9 @@ Account profiles and plan subscriptions are stored in PostgreSQL. Profile update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
-## CyberAgent: Gmail and Calendar
+## CyberMail: Gmail and Calendar
 
-CyberAgent is available from the chat sidebar. It uses Google's remote Gmail MCP server for supported Gmail searches, thread reads, and draft creation, and the Google Calendar API for listing and creating primary-calendar events. It never sends email. Creating a Gmail draft or Calendar event requires an explicit confirmation in the chat.
+Choose CyberMail from the Mode menu in the chat prompt to use Google's remote Gmail MCP server for supported Gmail searches, thread reads, and draft creation, and the Google Calendar API for listing and creating primary-calendar events. It never sends email. Creating a Gmail draft or Calendar event requires an explicit confirmation in the chat. Each mode has a separate chat history; switching modes resumes the latest chat in that mode or starts one if none exists.
 
 To enable the Google connection:
 
@@ -43,20 +43,21 @@ To enable the Google connection:
    - `https://www.googleapis.com/auth/calendar.events`
 3. Create a **Web application** OAuth client. Add the exact deployed callback URL (for local development, `http://localhost:3000/api/google/callback`) as an authorized redirect URI.
 4. Set these server-only environment variables from `.env.example`:
+   - `CYBERMAIL_DATABASE_URL` — optional dedicated Postgres connection string for CyberMail's Google OAuth tokens, OAuth states, and pending actions. If omitted, these use `DATABASE_URL`.
    - `GOOGLE_OAUTH_CLIENT_ID`
    - `GOOGLE_OAUTH_CLIENT_SECRET`
    - `GOOGLE_OAUTH_REDIRECT_URI`
    - `GOOGLE_TOKEN_ENCRYPTION_KEY` — a base64-encoded 32-byte key; for example, generate one with `openssl rand -base64 32`.
    - `GMAIL_MCP_SERVER_URL` is optional and defaults to `https://gmailmcp.googleapis.com/mcp/v1`.
-5. Ensure `DATABASE_URL` is configured. OAuth tokens are encrypted before being stored in Postgres. Do not put Google credentials in `NEXT_PUBLIC_*` variables or commit them.
+5. Ensure `DATABASE_URL` and, if using a separate CyberMail database, `CYBERMAIL_DATABASE_URL` are configured. OAuth tokens are encrypted before being stored in Postgres. If you switch to a new CyberMail database, reconnect the Google account there. Do not put database credentials or Google credentials in `NEXT_PUBLIC_*` variables or commit them.
 
 Google may require OAuth app verification before external users can grant sensitive Gmail and Calendar scopes. While the consent screen is in testing mode, add the intended accounts as test users.
 
-CyberAgent treats retrieved email and calendar content as untrusted input. Users should still review draft/event details before confirming. For Google's Gmail MCP setup and security guidance, see [Configure the Gmail MCP server](https://developers.google.com/workspace/gmail/api/guides/configure-mcp-server).
+CyberMail treats retrieved email and calendar content as untrusted input. Users should still review draft/event details before confirming. For Google's Gmail MCP setup and security guidance, see [Configure the Gmail MCP server](https://developers.google.com/workspace/gmail/api/guides/configure-mcp-server).
 
 ## CyberMaps: interactive maps and directions
 
-CyberMaps is available from the chat sidebar. Ask it to show a place or give directions, such as “directions from Cape Town Station to Table Mountain by transit.” The app embeds an interactive Google Maps search or directions map and stores the latest map request with the chat.
+Choose CyberMaps from the Mode menu in the chat prompt. Ask it to show a place or give directions, such as “directions from Cape Town Station to Table Mountain by transit.” The app embeds an interactive Google Maps search or directions map and stores the latest map request with the CyberMaps chat.
 
 To enable the embedded map:
 

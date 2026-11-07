@@ -166,9 +166,33 @@ function getErrorMessage(error: unknown) {
   return "The request failed.";
 }
 
+function getModeGreeting(agent: AgentMode) {
+  if (agent === "cyber") {
+    return "Hi, I’m CyberMail. Connect your Google account to search and summarize Gmail, review your calendar, create email drafts, and propose calendar events. I’ll ask before creating drafts or events.";
+  }
+  if (agent === "maps") {
+    return "Hi, I’m CyberMaps. Ask me to find a place or get directions, for example “directions from Cape Town Station to Table Mountain by transit.” The live map will update alongside our chat.";
+  }
+  return "Hi, I’m Teller AI. Ask me anything — I can help with research, writing, business, coding, summaries, and ideas.";
+}
+
 function isImageGenerationPrompt(prompt: string) {
   return /\b(?:pic|picture|image|photo|artwork|illustration)\b/i.test(prompt) &&
     /\b(?:make|create|generate|draw|design|show|of|for|with|turn)\b/i.test(prompt);
+}
+
+function extractVisualDetails(content: string) {
+  const marker = /\bvisual details of (?:the )?image\s*:\s*/i;
+  const match = marker.exec(content);
+  if (!match) return null;
+
+  const context = content.slice(0, match.index).trim();
+  const visualDetails = content.slice(match.index + match[0].length).trim();
+  if (!visualDetails) return null;
+
+  return context
+    ? `Context: ${context}\nVisual direction: ${visualDetails}`
+    : visualDetails;
 }
 
 function isImageModificationPrompt(prompt: string) {
@@ -359,6 +383,7 @@ export default function ChatWindow() {
   const agentQueryHandledRef = useRef(false);
 
   const [input, setInput] = useState("");
+  const promptInputRef = useRef<HTMLTextAreaElement | null>(null);
   const [speechPreview, setSpeechPreview] = useState("");
   const [speechError, setSpeechError] = useState("");
   const [isRecording, setIsRecording] = useState(false);
@@ -386,6 +411,7 @@ export default function ChatWindow() {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>("auto");
   const [isThemeMenuOpen, setIsThemeMenuOpen] = useState(false);
+  const [isModeMenuOpen, setIsModeMenuOpen] = useState(false);
   const [copiedMessage, setCopiedMessage] = useState<number | null>(null);
   const [isMounted, setIsMounted] = useState(false);
   const { user, isAuthenticated, isLoading: isAuthLoading, loginWithRedirect, logout, getAccessTokenSilently } = useAppAuth();
@@ -456,6 +482,13 @@ export default function ChatWindow() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading, speechPreview, isRecording, isTranscribing]);
+
+  useEffect(() => {
+    const textarea = promptInputRef.current;
+    if (!textarea) return;
+    textarea.style.height = "auto";
+    textarea.style.height = `${textarea.scrollHeight}px`;
+  }, [input]);
 
   useEffect(() => {
     const savedTheme = localStorage.getItem("teller_theme") as Theme | null;
@@ -586,7 +619,31 @@ export default function ChatWindow() {
     agentQueryHandledRef.current = true;
     url.searchParams.delete("agent");
     window.history.replaceState({}, document.title, `${url.pathname}${url.search}`);
-    createNewChat(requestedAgent);
+    const modeHistory = histories.find((history) => (
+      (history.agent === "cyber" || history.agent === "maps" ? history.agent : "teller") === requestedAgent
+    ));
+    if (modeHistory) {
+      setActiveHistoryId(modeHistory.id);
+      setActiveAgent(requestedAgent);
+      setActiveMapQuery(typeof modeHistory.mapQuery === "string" ? modeHistory.mapQuery : "");
+      setMessages(modeHistory.messages);
+    } else {
+      const id = Date.now().toString();
+      const initialMessages: Message[] = [{ role: "assistant", content: getModeGreeting(requestedAgent) }];
+      const newHistory: HistoryItem = {
+        id,
+        title: "New chat",
+        agent: requestedAgent,
+        ...(requestedAgent === "maps" ? { mapQuery: "" } : {}),
+        messages: initialMessages,
+        updatedAt: Date.now(),
+      };
+      setHistories((previous) => [newHistory, ...previous]);
+      setActiveHistoryId(id);
+      setActiveAgent(requestedAgent);
+      setActiveMapQuery("");
+      setMessages(initialMessages);
+    }
   }, [histories, isAuthLoading, isMounted]);
 
   // Persist active history whenever messages change
@@ -603,7 +660,7 @@ export default function ChatWindow() {
         id: activeHistoryId,
         title: finalTitle,
         agent: activeAgent,
-        ...(activeAgent === "maps" ? { mapQuery: activeMapQuery } : {}),
+        ...(activeMapQuery ? { mapQuery: activeMapQuery } : {}),
         messages,
         updatedAt: Date.now(),
       };
@@ -649,16 +706,32 @@ export default function ChatWindow() {
     };
   }, [getAccessTokenSilently, histories, isAuthenticated]);
 
+  function switchMode(mode: AgentMode) {
+    setIsModeMenuOpen(false);
+    if (mode === activeAgent) return;
+
+    const modeHistory = histories.find((history) => (
+      (history.agent === "cyber" || history.agent === "maps" ? history.agent : "teller") === mode
+    ));
+    if (!modeHistory) {
+      createNewChat(mode);
+      return;
+    }
+
+    setActiveHistoryId(modeHistory.id);
+    setActiveAgent(mode);
+    setActiveMapQuery(typeof modeHistory.mapQuery === "string" ? modeHistory.mapQuery : "");
+    setMessages(modeHistory.messages);
+    setIsSidebarOpen(false);
+    setIsImageHistoryOpen(false);
+  }
+
   function createNewChat(agent: AgentMode = activeAgent) {
     const id = Date.now().toString();
     const initialMessages: Message[] = [
       {
         role: "assistant",
-        content: agent === "cyber"
-          ? "Hi, I’m CyberAgent. Connect your Google account to search and summarize Gmail, review your calendar, create email drafts, and propose calendar events. I’ll ask before creating drafts or events."
-          : agent === "maps"
-            ? "Hi, I’m CyberMaps. Ask me to find a place or get directions, for example “directions from Cape Town Station to Table Mountain by transit.” The live map will update alongside our chat."
-            : "Hi, I’m Teller AI. Ask me anything — I can help with research, writing, business, coding, summaries, and ideas.",
+        content: getModeGreeting(agent),
       },
     ];
     const newItem: HistoryItem = {
@@ -689,20 +762,30 @@ export default function ChatWindow() {
       const next = prev.filter((h) => h.id !== id);
       // if deleted active, switch to first or create new
       if (id === activeHistoryId) {
-        if (next.length) {
-          setActiveHistoryId(next[0].id);
-          setMessages(next[0].messages);
-          setActiveAgent(next[0].agent === "cyber" || next[0].agent === "maps" ? next[0].agent : "teller");
-          setActiveMapQuery(typeof next[0].mapQuery === "string" ? next[0].mapQuery : "");
+        const nextModeHistory = next.find((history) => (
+          (history.agent === "cyber" || history.agent === "maps" ? history.agent : "teller") === activeAgent
+        ));
+        if (nextModeHistory) {
+          setActiveHistoryId(nextModeHistory.id);
+          setMessages(nextModeHistory.messages);
+          setActiveMapQuery(typeof nextModeHistory.mapQuery === "string" ? nextModeHistory.mapQuery : "");
         } else {
           const newId = Date.now().toString();
-          const initialMessages: Message[] = [
-            { role: "assistant", content: "Hi, I’m Teller AI. Ask me anything — I can help with research, writing, business, coding, summaries, and ideas.", file: null },
-          ];
-          const newHist: HistoryItem = { id: newId, title: "New chat", agent: "teller", messages: initialMessages, updatedAt: Date.now() };
-          setHistories([newHist]);
+          const initialMessages: Message[] = [{
+            role: "assistant",
+            content: getModeGreeting(activeAgent),
+            file: null,
+          }];
+          const newHist: HistoryItem = {
+            id: newId,
+            title: "New chat",
+            agent: activeAgent,
+            ...(activeAgent === "maps" ? { mapQuery: "" } : {}),
+            messages: initialMessages,
+            updatedAt: Date.now(),
+          };
+          next.unshift(newHist);
           setActiveHistoryId(newId);
-          setActiveAgent("teller");
           setActiveMapQuery("");
           setMessages(initialMessages);
         }
@@ -800,6 +883,7 @@ export default function ChatWindow() {
     setInput("");
     setSpeechPreview("");
     setLoading(true);
+    setIsModeMenuOpen(false);
     if (activeAgent === "maps") {
       setActiveMapQuery(userMessage.content);
       if (activeHistoryId) {
@@ -813,7 +897,7 @@ export default function ChatWindow() {
 
     try {
       if (activeAgent === "cyber") {
-        if (pendingFile) throw new Error("CyberAgent currently works with Gmail and Calendar, not file attachments. Remove the attachment and try again.");
+        if (pendingFile) throw new Error("CyberMail currently works with Gmail and Calendar, not file attachments. Remove the attachment and try again.");
         const token = isAuthenticated ? await getAccessTokenSilently() : null;
         const response = await fetch("/api/cyber-agent", {
           method: "POST",
@@ -826,11 +910,11 @@ export default function ChatWindow() {
           }),
         });
         const data = await response.json();
-        if (!response.ok) throw new Error(data.error || "CyberAgent could not complete that request.");
+        if (!response.ok) throw new Error(data.error || "CyberMail could not complete that request.");
         if (Number.isInteger(data.usageCount)) setMonthlyChatCount(data.usageCount);
         const assistantMessage: Message = {
           role: "assistant",
-          content: typeof data.reply === "string" ? data.reply : "CyberAgent completed the request.",
+          content: typeof data.reply === "string" ? data.reply : "CyberMail completed the request.",
           ...(data.pendingAction ? { pendingAction: data.pendingAction as CyberPendingAction } : {}),
         };
         const nextMessages = [...updatedMessages, assistantMessage];
@@ -849,6 +933,15 @@ export default function ChatWindow() {
       }
 
       const hasImageUpload = Boolean(pendingFile?.type.startsWith("image/"));
+      const currentVisualDirection = extractVisualDetails(userMessage.content);
+      const previousAssistantVisualDirection = updatedMessages
+        .slice(0, -1)
+        .reverse()
+        .find((message) => message.role === "assistant")
+        ?.content;
+      const previousVisualDirection = previousAssistantVisualDirection
+        ? extractVisualDetails(previousAssistantVisualDirection)
+        : null;
       const previousGeneratedImage = !pendingFile
         ? updatedMessages.slice(0, -1).reverse().find((message) => (
             message.role === "assistant" &&
@@ -862,11 +955,18 @@ export default function ChatWindow() {
       const shouldGenerateImage = hasImageUpload
         ? isImageModificationPrompt(userMessage.content)
         : !pendingFile && (
+            Boolean(currentVisualDirection) ||
             isImageGenerationPrompt(userMessage.content) ||
+            Boolean(previousVisualDirection && isImageGenerationPrompt(userMessage.content)) ||
             shouldEditGeneratedImage
           );
 
       if (shouldGenerateImage) {
+        const imagePrompt = currentVisualDirection || (
+          previousVisualDirection && isImageGenerationPrompt(userMessage.content)
+            ? `Create an image using this visual direction: ${previousVisualDirection}`
+            : userMessage.content
+        );
         const token = isAuthenticated ? await getAccessTokenSilently() : null;
         const imageResponse = await fetch("/api/images/generate", {
           method: "POST",
@@ -875,7 +975,7 @@ export default function ChatWindow() {
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
           body: JSON.stringify({
-            prompt: userMessage.content,
+            prompt: imagePrompt,
             historyId: activeHistoryId,
             ...(hasImageUpload ? { referenceImage: pendingFile?.dataUrl } : {}),
             ...(shouldEditGeneratedImage && previousGeneratedImage
@@ -1311,6 +1411,10 @@ export default function ChatWindow() {
     window.setTimeout(() => document.querySelector<HTMLInputElement>("input[placeholder='Ask Teller AI anything...']")?.focus(), 0);
   }
 
+  const modeHistories = histories.filter((history) => (
+    (history.agent === "cyber" || history.agent === "maps" ? history.agent : "teller") === activeAgent
+  ));
+
   return (
     <div data-theme={theme} className="flex h-screen bg-neutral-950 text-white">
       <aside className={`fixed inset-y-0 left-0 z-40 w-72 transform border-r border-neutral-800 bg-neutral-900 p-4 transition-transform duration-200 md:static md:translate-x-0 ${isHistoryVisible ? 'md:block' : 'md:hidden'} ${isSidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"}`} aria-hidden={!isSidebarOpen && true}>
@@ -1337,43 +1441,6 @@ export default function ChatWindow() {
               <Images size={18} aria-hidden="true" />
               History
             </button>
-            <button
-              type="button"
-              onClick={() => createNewChat("cyber")}
-              aria-current={activeAgent === "cyber" ? "page" : undefined}
-              className={`mt-2 flex w-full items-center gap-3 rounded-lg border px-3 py-3 text-left transition ${
-                activeAgent === "cyber"
-                  ? "border-violet-500/50 bg-violet-500/10 text-white"
-                  : "border-neutral-800 text-neutral-300 hover:bg-neutral-800"
-              }`}
-            >
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-500/15 text-violet-200">
-                <Sparkles size={18} aria-hidden="true" />
-              </span>
-              <span className="min-w-0">
-                <span className="block font-medium">CyberAgent</span>
-                <span className="block text-xs text-neutral-400">Gmail & Calendar</span>
-              </span>
-            </button>
-            <button
-              type="button"
-              onClick={() => createNewChat("maps")}
-              aria-current={activeAgent === "maps" ? "page" : undefined}
-              className={`mt-2 flex w-full items-center gap-3 rounded-lg border px-3 py-3 text-left transition ${
-                activeAgent === "maps"
-                  ? "border-sky-500/50 bg-sky-500/10 text-white"
-                  : "border-neutral-800 text-neutral-300 hover:bg-neutral-800"
-              }`}
-            >
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-sky-500/15 text-sky-200">
-                <MapPinned size={18} aria-hidden="true" />
-              </span>
-              <span className="min-w-0">
-                <span className="block font-medium">CyberMaps</span>
-                <span className="block text-xs text-neutral-400">Directions & live map</span>
-              </span>
-            </button>
-
             {/* file attach control moved to the input area (left of prompt) */}
 
             {/* Titles are generated automatically after the first assistant reply; removed manual button */}
@@ -1383,9 +1450,9 @@ export default function ChatWindow() {
             <div className="min-h-0 flex-1 overflow-y-auto space-y-5 text-sm text-neutral-400 modern-scroll">
               <section aria-labelledby="chat-history-heading">
                 <h2 id="chat-history-heading" className="mb-2 px-1 text-xs font-semibold uppercase tracking-wider text-neutral-500">Chat history</h2>
-                {histories.length === 0 && <p className="px-1">No chats yet</p>}
+                {modeHistories.length === 0 && <p className="px-1">No chats yet</p>}
                 <div className="space-y-2">
-                  {histories.slice(0, 6).map((h) => (
+                  {modeHistories.slice(0, 6).map((h) => (
                     <div key={h.id} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter') loadHistory(h.id); }} onClick={() => loadHistory(h.id)} className={`flex items-center justify-between w-full rounded-md px-3 py-2 hover:bg-neutral-800 ${h.id === activeHistoryId ? "bg-neutral-800" : ""}`}>
                       <div className="min-w-0">
                         <div className="truncate text-white">{h.title}</div>
@@ -1471,7 +1538,7 @@ export default function ChatWindow() {
                 <img src="/jupiter-black.svg" alt="Teller AI" className="h-8 w-8 object-contain" />
               )}
               <div className="leading-tight">
-                <div className="text-sm font-semibold">{activeAgent === "cyber" ? "CyberAgent" : activeAgent === "maps" ? "CyberMaps" : "Teller AI"}</div>
+                <div className="text-sm font-semibold">{activeAgent === "cyber" ? "CyberMail" : activeAgent === "maps" ? "CyberMaps" : "Teller AI"}</div>
                 {activeAgent === "cyber" && <div className="text-xs text-neutral-400">Google Workspace assistant</div>}
                 {activeAgent === "maps" && <div className="text-xs text-neutral-400">Directions & interactive maps</div>}
               </div>
@@ -1624,7 +1691,7 @@ export default function ChatWindow() {
                     )}
                     <button
                       type="button"
-                      onClick={() => createNewChat("teller")}
+                      onClick={() => switchMode("teller")}
                       className="inline-flex items-center gap-2 rounded-lg border border-neutral-700 px-3 py-2 text-sm text-neutral-200 transition hover:bg-neutral-800"
                     >
                       <ArrowLeft size={15} aria-hidden="true" />
@@ -1670,7 +1737,7 @@ export default function ChatWindow() {
                   <div>
                     <h2 className="flex items-center gap-2 font-semibold text-white">
                       <Sparkles size={17} className="text-violet-300" aria-hidden="true" />
-                      CyberAgent
+                      CyberMail
                     </h2>
                     <p className="mt-1 text-sm text-neutral-300">
                       Search Gmail and review your calendar. Drafts and new events always wait for your confirmation.
@@ -1678,7 +1745,7 @@ export default function ChatWindow() {
                   </div>
                   <button
                     type="button"
-                    onClick={() => createNewChat("teller")}
+                    onClick={() => switchMode("teller")}
                     className="inline-flex items-center gap-2 rounded-lg border border-neutral-700 px-3 py-2 text-sm text-neutral-200 transition hover:bg-neutral-800"
                   >
                     <ArrowLeft size={15} aria-hidden="true" />
@@ -1825,7 +1892,7 @@ export default function ChatWindow() {
             )}
 
             {loading && (
-              <div className="mr-auto max-w-[85%] rounded-xl bg-neutral-800 p-4 [overflow-wrap:anywhere]">{activeAgent === "cyber" ? "CyberAgent is working..." : activeAgent === "maps" ? "CyberMaps is working..." : "Teller AI is thinking..."}</div>
+              <div className="mr-auto max-w-[85%] rounded-xl bg-neutral-800 p-4 [overflow-wrap:anywhere]">{activeAgent === "cyber" ? "CyberMail is working..." : activeAgent === "maps" ? "CyberMaps is working..." : "Teller AI is thinking..."}</div>
             )}
 
             <div ref={messagesEndRef} />
@@ -1852,7 +1919,50 @@ export default function ChatWindow() {
                   </div>
                 )}
                 <div className="flex min-w-0 items-end gap-2">
-                <label className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-full text-neutral-400 transition-colors hover:bg-neutral-800 hover:text-white" title="Attach file">
+                <div className="relative order-2 shrink-0 self-center">
+                  <button
+                    type="button"
+                    onClick={() => setIsModeMenuOpen((open) => !open)}
+                    disabled={loading || isRecording || isTranscribing}
+                    className="flex h-10 items-center gap-2 rounded-full border border-neutral-700 px-3 text-xs font-medium text-neutral-200 transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50"
+                    aria-label={`Mode: ${activeAgent === "cyber" ? "CyberMail" : activeAgent === "maps" ? "CyberMaps" : "Teller AI"}`}
+                    aria-haspopup="menu"
+                    aria-expanded={isModeMenuOpen}
+                  >
+                    <span className="max-w-32 truncate font-bold text-white">
+                      {activeAgent === "cyber" ? "CyberMail" : activeAgent === "maps" ? "CyberMaps" : "Teller AI"}
+                    </span>
+                    <span aria-hidden="true">▾</span>
+                  </button>
+                  {isModeMenuOpen && (
+                    <div className="absolute bottom-12 left-0 z-30 w-56 rounded-xl border border-neutral-700 bg-neutral-900 p-1 shadow-xl" role="menu" aria-label="Choose chat mode">
+                      {([
+                        { id: "teller", label: "Teller AI", description: "General chat" },
+                        { id: "cyber", label: "CyberMail", description: "Gmail & Calendar" },
+                        { id: "maps", label: "CyberMaps", description: "Directions & live map" },
+                      ] as const).map((mode) => (
+                        <button
+                          key={mode.id}
+                          type="button"
+                          role="menuitemradio"
+                          aria-checked={activeAgent === mode.id}
+                          disabled={loading || isRecording || isTranscribing}
+                          onClick={() => switchMode(mode.id)}
+                          className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50 ${
+                            activeAgent === mode.id ? "bg-neutral-800 text-white" : "text-neutral-300"
+                          }`}
+                        >
+                          <span>
+                            <span className="block text-sm font-bold">{mode.label}</span>
+                            <span className="block text-xs text-neutral-500">{mode.description}</span>
+                          </span>
+                          {activeAgent === mode.id && <Check size={16} aria-hidden="true" />}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <label className="order-1 flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-full text-neutral-400 transition-colors hover:bg-neutral-800 hover:text-white" title="Attach file">
                   <input type="file" className="hidden" onChange={async (e) => {
                     const f = e.target.files?.[0];
                     if (!f) return;
@@ -1882,9 +1992,10 @@ export default function ChatWindow() {
                 </label>
 
                 <textarea
+                  ref={promptInputRef}
                   rows={1}
-                  className="max-h-36 min-h-11 min-w-0 flex-1 resize-none bg-transparent px-2 py-3 text-sm leading-5 text-white outline-none placeholder:text-neutral-500"
-                  placeholder={activeAgent === "cyber" ? "Ask CyberAgent about Gmail or your calendar..." : activeAgent === "maps" ? "Search for a place or ask for directions..." : "Ask Teller AI anything..."}
+                  className="order-3 max-h-[45vh] min-h-11 min-w-0 flex-1 resize-none overflow-y-auto bg-transparent px-2 py-3 text-sm leading-5 text-white outline-none placeholder:text-neutral-500"
+                  placeholder={activeAgent === "cyber" ? "Ask CyberMail about Gmail or your calendar..." : activeAgent === "maps" ? "Search for a place or ask for directions..." : "Ask Teller AI anything..."}
                   value={input}
                   disabled={isRecording || isTranscribing || loading}
                   onChange={(e) => setInput(e.target.value)}
@@ -1894,7 +2005,7 @@ export default function ChatWindow() {
                       void sendMessage();
                     }
                   }}
-                  aria-label={`Message ${activeAgent === "cyber" ? "CyberAgent" : activeAgent === "maps" ? "CyberMaps" : "Teller AI"}`}
+                  aria-label={`Message ${activeAgent === "cyber" ? "CyberMail" : activeAgent === "maps" ? "CyberMaps" : "Teller AI"}`}
                 />
 
                 <button
@@ -1916,7 +2027,7 @@ export default function ChatWindow() {
                     void sendMessage();
                   }}
                   disabled={loading || isTranscribing}
-                  className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-colors disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400 ${isRecording ? "bg-red-500 text-white hover:bg-red-400" : "bg-white text-neutral-950 hover:bg-neutral-200"}`}
+                  className={`order-4 flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-colors disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400 ${isRecording ? "bg-red-500 text-white hover:bg-red-400" : "bg-white text-neutral-950 hover:bg-neutral-200"}`}
                   aria-label={isRecording ? "Release to transcribe" : "Send message or hold to speak"}
                   title={isRecording ? "Release to transcribe" : "Click to send, hold to speak"}
                 >

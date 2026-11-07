@@ -17,12 +17,12 @@ export async function POST(request: Request) {
     }
     const action = await consumeGooglePendingAction(userId, actionId);
     if (!action) {
-      return NextResponse.json({ error: "This confirmation expired or has already been used. Please ask CyberAgent again." }, { status: 410 });
+      return NextResponse.json({ error: "This confirmation expired or has already been used. Please ask CyberMail again." }, { status: 410 });
     }
     const accessToken = await getGoogleAccessToken(userId);
     return NextResponse.json(await executePendingGoogleAction(accessToken, action));
   } catch (error) {
-    console.error("CyberAgent action confirmation error:", error);
+    console.error("CyberMail action confirmation error:", error);
     const message = error instanceof Error ? error.message : "Could not complete the confirmed Google action.";
     return NextResponse.json({ error: message }, { status: 502 });
   }

@@ -28,6 +28,8 @@ export type GooglePendingAction = {
 const globalForPostgres = globalThis as typeof globalThis & {
   tellerPostgresPool?: Pool;
   tellerPostgresSchema?: Promise<void>;
+  tellerCyberAgentPostgresPool?: Pool;
+  tellerCyberAgentPostgresSchema?: Promise<void>;
 };
 
 function getPool() {
@@ -37,6 +39,17 @@ function getPool() {
     globalForPostgres.tellerPostgresPool = new Pool({ connectionString, max: 5 });
   }
   return globalForPostgres.tellerPostgresPool;
+}
+
+function getCyberAgentPool() {
+  if (!globalForPostgres.tellerCyberAgentPostgresPool) {
+    const connectionString = process.env.CYBERMAIL_DATABASE_URL || process.env.DATABASE_URL;
+    if (!connectionString) {
+      throw new Error("CYBERMAIL_DATABASE_URL or DATABASE_URL must be configured.");
+    }
+    globalForPostgres.tellerCyberAgentPostgresPool = new Pool({ connectionString, max: 5 });
+  }
+  return globalForPostgres.tellerCyberAgentPostgresPool;
 }
 
 async function ensureSchema() {
@@ -115,17 +128,50 @@ async function ensureSchema() {
   await globalForPostgres.tellerPostgresSchema;
 }
 
+async function ensureCyberAgentSchema() {
+  if (!globalForPostgres.tellerCyberAgentPostgresSchema) {
+    globalForPostgres.tellerCyberAgentPostgresSchema = getCyberAgentPool().query(`
+      CREATE TABLE IF NOT EXISTS teller_google_connections (
+        user_id TEXT PRIMARY KEY,
+        email TEXT NOT NULL,
+        encrypted_tokens TEXT NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `).then(async () => {
+      await getCyberAgentPool().query(`
+        CREATE TABLE IF NOT EXISTS teller_google_oauth_states (
+          state_hash TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL,
+          expires_at TIMESTAMPTZ NOT NULL
+        )
+      `);
+      await getCyberAgentPool().query(`
+        CREATE TABLE IF NOT EXISTS teller_google_pending_actions (
+          id UUID PRIMARY KEY,
+          user_id TEXT NOT NULL,
+          action JSONB NOT NULL,
+          expires_at TIMESTAMPTZ NOT NULL
+        )
+      `);
+    }).catch((error: unknown) => {
+      globalForPostgres.tellerCyberAgentPostgresSchema = undefined;
+      throw error;
+    });
+  }
+  await globalForPostgres.tellerCyberAgentPostgresSchema;
+}
+
 export async function saveGoogleOAuthState(stateHash: string, userId: string) {
-  await ensureSchema();
-  await getPool().query(
+  await ensureCyberAgentSchema();
+  await getCyberAgentPool().query(
     "INSERT INTO teller_google_oauth_states (state_hash, user_id, expires_at) VALUES ($1, $2, NOW() + INTERVAL '10 minutes')",
     [stateHash, userId],
   );
 }
 
 export async function consumeGoogleOAuthState(stateHash: string) {
-  await ensureSchema();
-  const result = await getPool().query<{ user_id: string }>(
+  await ensureCyberAgentSchema();
+  const result = await getCyberAgentPool().query<{ user_id: string }>(
     "DELETE FROM teller_google_oauth_states WHERE state_hash = $1 AND expires_at > NOW() RETURNING user_id",
     [stateHash],
   );
@@ -137,8 +183,8 @@ export async function saveGoogleConnection(
   email: string,
   encryptedTokens: string,
 ) {
-  await ensureSchema();
-  await getPool().query(
+  await ensureCyberAgentSchema();
+  await getCyberAgentPool().query(
     `
       INSERT INTO teller_google_connections (user_id, email, encrypted_tokens, updated_at)
       VALUES ($1, $2, $3, NOW())
@@ -152,8 +198,8 @@ export async function saveGoogleConnection(
 }
 
 export async function getGoogleConnection(userId: string): Promise<GoogleConnectionRecord | null> {
-  await ensureSchema();
-  const result = await getPool().query<{
+  await ensureCyberAgentSchema();
+  const result = await getCyberAgentPool().query<{
     email: string;
     encrypted_tokens: string;
   }>(
@@ -165,17 +211,17 @@ export async function getGoogleConnection(userId: string): Promise<GoogleConnect
 }
 
 export async function deleteGoogleConnection(userId: string) {
-  await ensureSchema();
-  await getPool().query("DELETE FROM teller_google_connections WHERE user_id = $1", [userId]);
+  await ensureCyberAgentSchema();
+  await getCyberAgentPool().query("DELETE FROM teller_google_connections WHERE user_id = $1", [userId]);
 }
 
 export async function createGooglePendingAction(
   userId: string,
   action: GooglePendingAction,
 ) {
-  await ensureSchema();
+  await ensureCyberAgentSchema();
   const id = crypto.randomUUID();
-  await getPool().query(
+  await getCyberAgentPool().query(
     "INSERT INTO teller_google_pending_actions (id, user_id, action, expires_at) VALUES ($1, $2, $3::jsonb, NOW() + INTERVAL '10 minutes')",
     [id, userId, JSON.stringify(action)],
   );
@@ -183,8 +229,8 @@ export async function createGooglePendingAction(
 }
 
 export async function consumeGooglePendingAction(userId: string, id: string) {
-  await ensureSchema();
-  const result = await getPool().query<{ action: GooglePendingAction }>(
+  await ensureCyberAgentSchema();
+  const result = await getCyberAgentPool().query<{ action: GooglePendingAction }>(
     "DELETE FROM teller_google_pending_actions WHERE id = $1 AND user_id = $2 AND expires_at > NOW() RETURNING action",
     [id, userId],
   );
