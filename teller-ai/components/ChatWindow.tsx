@@ -204,6 +204,11 @@ function isImageModificationPrompt(prompt: string) {
     /^\s*(?:(?:please|can you|could you|would you)\s+)*(?:make|create|generate)\s+(?:another|a different|a new version|a variation)\b/i.test(prompt);
 }
 
+function isImageVariationPrompt(prompt: string) {
+  return /^\s*(?:(?:please|can you|could you|would you)\s+)*(?:(?:make|create|generate|draw|design|show|give me)\s+)?(?:(?:me|us)\s+)?(?:another|a different|a new|one more)\s+(?:image|picture|photo|artwork|illustration|one|version|variation)\b/i.test(prompt) ||
+    /^\s*(?:(?:please|can you|could you|would you)\s+)*(?:try again|try another|do another one)\b/i.test(prompt);
+}
+
 function isImageReferencePrompt(prompt: string) {
   return /\b(?:it|this|that|there|describe|analyze|analyse|explain|image|picture|photo|artwork|illustration|scene|subject|character|background|foreground|color|colour|object|person|people|animal|sky|clothing|hat)\b/i.test(prompt);
 }
@@ -952,21 +957,32 @@ export default function ChatWindow() {
       const shouldEditGeneratedImage = Boolean(
         previousGeneratedImage && isImageModificationPrompt(userMessage.content),
       );
+      const shouldCreateImageVariation = Boolean(
+        previousGeneratedImage && isImageVariationPrompt(userMessage.content),
+      );
       const shouldGenerateImage = hasImageUpload
         ? isImageModificationPrompt(userMessage.content)
         : !pendingFile && (
             Boolean(currentVisualDirection) ||
             isImageGenerationPrompt(userMessage.content) ||
             Boolean(previousVisualDirection && isImageGenerationPrompt(userMessage.content)) ||
-            shouldEditGeneratedImage
+            shouldEditGeneratedImage ||
+            shouldCreateImageVariation
           );
 
       if (shouldGenerateImage) {
-        const imagePrompt = currentVisualDirection || (
-          previousVisualDirection && isImageGenerationPrompt(userMessage.content)
-            ? `Create an image using this visual direction: ${previousVisualDirection}`
-            : userMessage.content
-        );
+        const imagePrompt = currentVisualDirection ||
+          (shouldCreateImageVariation
+            ? [
+                "Create a new, distinct image based on the reference image. Follow any subject or changes specified in the user's request; otherwise preserve the reference image's subject and overall style while changing the composition.",
+                previousGeneratedImage?.imageDescription
+                  ? `Reference image details: ${previousGeneratedImage.imageDescription}`
+                  : "",
+                `User request: ${userMessage.content}`,
+              ].filter(Boolean).join("\n")
+            : previousVisualDirection && isImageGenerationPrompt(userMessage.content)
+              ? `Create an image using this visual direction: ${previousVisualDirection}`
+              : userMessage.content);
         const token = isAuthenticated ? await getAccessTokenSilently() : null;
         const imageResponse = await fetch("/api/images/generate", {
           method: "POST",
@@ -978,7 +994,7 @@ export default function ChatWindow() {
             prompt: imagePrompt,
             historyId: activeHistoryId,
             ...(hasImageUpload ? { referenceImage: pendingFile?.dataUrl } : {}),
-            ...(shouldEditGeneratedImage && previousGeneratedImage
+            ...((shouldEditGeneratedImage || shouldCreateImageVariation) && previousGeneratedImage
               ? { referenceImageStoragePath: previousGeneratedImage.imageStoragePath }
               : {}),
           }),
