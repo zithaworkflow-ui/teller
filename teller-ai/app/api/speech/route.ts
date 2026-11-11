@@ -2,7 +2,10 @@ import { readFile } from "node:fs/promises";
 import { NextResponse } from "next/server";
 import { getAuthenticatedUserId } from "@/lib/auth0-auth";
 import { getNvidiaAIConfig } from "@/lib/nvidia-ai";
-import { getUserVoicePrompt, saveUserVoicePrompt } from "@/lib/postgres";
+import {
+  getSharedVoicePrompt,
+  seedSharedVoicePromptIfMissing,
+} from "@/lib/postgres";
 import { formatTextForSpeech, splitTextForSpeech } from "@/lib/voice-format";
 import { parseWav, validateReferenceWav } from "@/lib/voice-prompt";
 
@@ -51,8 +54,8 @@ function combineWavAudio(wavFiles: Buffer[]) {
   return Buffer.concat([header, riffBody]);
 }
 
-async function loadVoicePromptForUser(userId: string, configuredPromptPath?: string) {
-  const storedPrompt = await getUserVoicePrompt(userId);
+async function loadSharedVoicePrompt(configuredPromptPath?: string) {
+  const storedPrompt = await getSharedVoicePrompt();
   if (storedPrompt && storedPrompt.mediaData.length > 0) {
     return storedPrompt.mediaData;
   }
@@ -62,8 +65,9 @@ async function loadVoicePromptForUser(userId: string, configuredPromptPath?: str
   const promptAudio = await readFile(configuredPromptPath);
   if (!promptAudio.length) return null;
 
-  await saveUserVoicePrompt(userId, "voice-prompt.wav", "audio/wav", promptAudio);
-  return promptAudio;
+  await seedSharedVoicePromptIfMissing("voice-prompt.wav", "audio/wav", promptAudio);
+  const savedPrompt = await getSharedVoicePrompt();
+  return savedPrompt?.mediaData ?? promptAudio;
 }
 
 async function synthesizeSpeech(
@@ -103,7 +107,27 @@ async function synthesizeSpeech(
 
   if (!response.ok) {
     console.error("NVIDIA speech generation failed:", response.status);
-    throw new Error("Voice generation failed. Check NVIDIA TTS access and try again.");
+    if (response.status === 401 || response.status === 403) {
+      throw new Error(
+        `NVIDIA denied the speech request (HTTP ${response.status}). Verify NVIDIA_API_KEY and confirm it has access to the Magpie TTS Zero-Shot model.`,
+      );
+    }
+    if (response.status === 404) {
+      throw new Error(
+        "NVIDIA could not find the TTS endpoint (HTTP 404). Verify NVIDIA_TTS_API_URL.",
+      );
+    }
+    if (response.status === 429) {
+      throw new Error("NVIDIA TTS rate limit reached. Try again later.");
+    }
+    if (response.status >= 500) {
+      throw new Error(
+        `NVIDIA TTS is temporarily unavailable (HTTP ${response.status}). Try again later.`,
+      );
+    }
+    throw new Error(
+      `NVIDIA rejected the speech request (HTTP ${response.status}). Check the TTS endpoint and voice sample format.`,
+    );
   }
 
   const contentType = response.headers.get("content-type") || "";
@@ -161,7 +185,7 @@ export async function POST(request: Request) {
 
     let promptAudio: Buffer | null;
     try {
-      promptAudio = await loadVoicePromptForUser(userId, promptPath);
+      promptAudio = await loadSharedVoicePrompt(promptPath);
     } catch (error) {
       console.error("Could not load NVIDIA voice prompt:", error);
       return NextResponse.json({ error: "The configured NVIDIA voice sample could not be loaded." }, { status: 503 });
@@ -169,7 +193,7 @@ export async function POST(request: Request) {
     if (!promptAudio) {
       return NextResponse.json(
         {
-          error: "Upload a voice sample in Account Settings or set NVIDIA_TTS_VOICE_PROMPT_PATH with a 3–10 second WAV voice sample.",
+          error: "The shared voice sample has not been configured. Ask the voice-sample manager to upload one in Account Settings or set NVIDIA_TTS_VOICE_PROMPT_PATH.",
         },
         { status: 503 },
       );

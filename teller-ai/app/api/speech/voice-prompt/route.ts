@@ -1,16 +1,21 @@
 import { NextResponse } from "next/server";
-import { getAuthenticatedUserId } from "@/lib/auth0-auth";
-import { saveUserVoicePrompt } from "@/lib/postgres";
+import { getAuthenticatedUser } from "@/lib/auth0-auth";
+import { saveSharedVoicePrompt } from "@/lib/postgres";
+import { isVoicePromptManager } from "@/lib/voice-prompt-access";
 import { validateReferenceWav } from "@/lib/voice-prompt";
 
 export const runtime = "nodejs";
 
 const MAX_REFERENCE_AUDIO_BYTES = 10 * 1024 * 1024;
+const SIGN_IN_ERROR = "Sign in with the voice-sample manager account to upload a sample.";
 
 export async function POST(request: Request) {
-  const userId = await getAuthenticatedUserId(request);
-  if (!userId) {
+  const user = await getAuthenticatedUser(request);
+  if (!user) {
     return NextResponse.json({ error: "Sign in to upload a voice sample." }, { status: 401 });
+  }
+  if (!isVoicePromptManager(user.email, user.email_verified)) {
+    return NextResponse.json({ error: SIGN_IN_ERROR }, { status: 403 });
   }
 
   const contentLength = Number(request.headers.get("content-length"));
@@ -48,7 +53,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    await saveUserVoicePrompt(userId, "voice-prompt.wav", "audio/wav", audio);
+    await saveSharedVoicePrompt("voice-prompt.wav", "audio/wav", audio);
     return NextResponse.json({ ok: true });
   } catch (error) {
     console.error("Could not save voice sample:", error);

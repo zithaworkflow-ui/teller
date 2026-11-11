@@ -6,9 +6,11 @@ import { useEffect, useState, type ChangeEvent } from "react";
 import PayPalUpgradeButton from "@/components/PayPalUpgradeButton";
 import { COUNTRY_OPTIONS, PHONE_CODE_OPTIONS, countryFlag, splitInternationalPhone } from "@/lib/country-options";
 import { prepareVoicePrompt } from "@/lib/voice-prompt-client";
+import { isVoicePromptManager, VOICE_PROMPT_MANAGER_EMAIL } from "@/lib/voice-prompt-access";
 
 export default function SettingsPage() {
   const { user, isAuthenticated, isLoading, loginWithRedirect, logout, getAccessTokenSilently } = useAppAuth();
+  const canManageVoiceSample = isVoicePromptManager(user?.email, user?.email_verified);
   const accountId = user?.sub || user?.email || "guest";
   const preferencesKey = `teller_preferences:${accountId}`;
   const [monthlyChatCount, setMonthlyChatCount] = useState(0);
@@ -284,12 +286,13 @@ export default function SettingsPage() {
 
           {isAuthenticated && (
             <section className="rounded-xl border border-neutral-800 bg-neutral-950 p-5">
-              <h2 className="text-lg font-semibold">AI voice sample</h2>
+              <h2 className="text-lg font-semibold">Shared AI voice sample</h2>
               <p className="mt-2 text-sm text-neutral-400">
-                Upload a browser-supported audio recording of at least 3 seconds. The first 10 seconds are
-                automatically cut and converted to mono, 16-bit PCM WAV at 22.05 kHz. Uploading replaces the saved sample.
+                {canManageVoiceSample
+                  ? "This sample is used for speech generation across all accounts. Upload a browser-supported audio recording of at least 3 seconds. The first 10 seconds are automatically cut and converted to mono, 16-bit PCM WAV at 22.05 kHz. Uploading replaces the shared sample."
+                  : `This sample is used for speech generation across all accounts and is managed by ${VOICE_PROMPT_MANAGER_EMAIL}.`}
               </p>
-              <div className="mt-4 flex flex-wrap items-center gap-3">
+              {canManageVoiceSample && <div className="mt-4 flex flex-wrap items-center gap-3">
                 <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-white px-4 py-2 text-sm font-medium text-black has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-60">
                   {isUploadingVoiceSample
                     ? <LoaderCircle aria-hidden="true" className="h-4 w-4 animate-spin" />
@@ -309,7 +312,7 @@ export default function SettingsPage() {
                 </label>
                 {voiceSampleMessage && <span role="status" className="text-sm text-emerald-400">{voiceSampleMessage}</span>}
                 {voiceSampleError && <span role="alert" className="text-sm text-red-400">{voiceSampleError}</span>}
-              </div>
+              </div>}
             </section>
           )}
 

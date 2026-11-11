@@ -10,6 +10,7 @@ export type AuthenticatedUser = {
   given_name?: string;
   family_name?: string;
   email?: string;
+  email_verified?: boolean;
   picture?: string;
 };
 
@@ -23,6 +24,7 @@ function toIdentity(value: unknown): AuthenticatedUser | null {
     ...(typeof record.given_name === "string" ? { given_name: record.given_name } : {}),
     ...(typeof record.family_name === "string" ? { family_name: record.family_name } : {}),
     ...(typeof record.email === "string" ? { email: record.email } : {}),
+    ...(typeof record.email_verified === "boolean" ? { email_verified: record.email_verified } : {}),
     ...(typeof record.picture === "string" ? { picture: record.picture } : {}),
   };
 }
