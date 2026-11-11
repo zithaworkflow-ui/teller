@@ -1,0 +1,217 @@
+import { readFile } from "node:fs/promises";
+import { NextResponse } from "next/server";
+import { getAuthenticatedUserId } from "@/lib/auth0-auth";
+import { LOCAL_TEST_USER_ID } from "@/lib/local-test-auth";
+import { getNvidiaAIConfig } from "@/lib/nvidia-ai";
+import { getUserVoicePrompt, saveUserVoicePrompt } from "@/lib/postgres";
+import { formatTextForSpeech, splitTextForSpeech } from "@/lib/voice-format";
+import { parseWav, validateReferenceWav } from "@/lib/voice-prompt";
+
+export const runtime = "nodejs";
+
+const NVIDIA_TTS_DEFAULT_URL =
+  "https://api.nvcf.nvidia.com/v2/nvcf/pexec/functions/55cf67bf-600f-4b04-8eac-12ed39537a08";
+const MAX_SPEECH_TEXT_LENGTH = 2500;
+const MAX_REFERENCE_AUDIO_BYTES = 10 * 1024 * 1024;
+const SPEECH_TIMEOUT_MS = 60_000;
+
+function combineWavAudio(wavFiles: Buffer[]) {
+  const parsedFiles = wavFiles.map(parseWav);
+  const first = parsedFiles[0];
+  if (!first || first.format !== 1 || first.channels !== 1 || first.bitsPerSample !== 16) {
+    throw new Error("NVIDIA returned an unsupported audio format.");
+  }
+
+  const audioChunks = parsedFiles.flatMap((wav) => {
+    if (!wav || wav.format !== first.format || wav.channels !== first.channels ||
+      wav.sampleRate !== first.sampleRate || wav.bitsPerSample !== first.bitsPerSample) {
+      throw new Error("NVIDIA returned inconsistent audio formats.");
+    }
+    return wav.audioChunks;
+  });
+  const audioData = Buffer.concat(audioChunks);
+  const formatHeader = Buffer.alloc(8);
+  formatHeader.write("fmt ", 0, "ascii");
+  formatHeader.writeUInt32LE(first.formatChunk.length, 4);
+  const dataHeader = Buffer.alloc(8);
+  dataHeader.write("data", 0, "ascii");
+  dataHeader.writeUInt32LE(audioData.length, 4);
+  const padding = first.formatChunk.length % 2 ? Buffer.from([0]) : Buffer.alloc(0);
+  const riffBody = Buffer.concat([
+    Buffer.from("WAVE", "ascii"),
+    formatHeader,
+    first.formatChunk,
+    padding,
+    dataHeader,
+    audioData,
+    audioData.length % 2 ? Buffer.from([0]) : Buffer.alloc(0),
+  ]);
+  const header = Buffer.alloc(8);
+  header.write("RIFF", 0, "ascii");
+  header.writeUInt32LE(riffBody.length, 4);
+  return Buffer.concat([header, riffBody]);
+}
+
+async function loadVoicePromptForUser(userId: string, configuredPromptPath?: string) {
+  const storedPrompt = await getUserVoicePrompt(userId);
+  if (storedPrompt && storedPrompt.mediaData.length > 0) {
+    return storedPrompt.mediaData;
+  }
+
+  if (!configuredPromptPath) return null;
+
+  const promptAudio = await readFile(configuredPromptPath);
+  if (!promptAudio.length) return null;
+
+  await saveUserVoicePrompt(userId, "voice-prompt.wav", "audio/wav", promptAudio);
+  return promptAudio;
+}
+
+async function synthesizeSpeech(
+  text: string,
+  promptAudio: Buffer,
+  promptSampleRate: number,
+  apiKey: string,
+  endpoint: string,
+) {
+  const formData = new FormData();
+  formData.append("config", JSON.stringify({
+    language_code: "en-US",
+    encoding: "LINEAR_PCM",
+    sample_rate_hz: 22_050,
+    text,
+    zero_shot_data: {
+      quality: 20,
+      sample_rate_hz: promptSampleRate,
+      encoding: "LINEAR_PCM",
+    },
+  }));
+  formData.append(
+    "audio",
+    new Blob([Uint8Array.from(promptAudio)], { type: "audio/wav" }),
+    "voice-prompt.wav",
+  );
+
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      Accept: "audio/wav",
+    },
+    body: formData,
+    signal: AbortSignal.timeout(SPEECH_TIMEOUT_MS),
+  });
+
+  if (!response.ok) {
+    console.error("NVIDIA speech generation failed:", response.status);
+    throw new Error("Voice generation failed. Check NVIDIA TTS access and try again.");
+  }
+
+  const contentType = response.headers.get("content-type") || "";
+  if (contentType.includes("text/event-stream")) {
+    const body = await response.text();
+    const chunks: Buffer[] = [];
+    for (const line of body.split(/\r?\n/)) {
+      if (!line.startsWith("data:")) continue;
+      const eventData = line.slice(5).trim();
+      if (!eventData || eventData === "[DONE]") continue;
+      try {
+        const event = JSON.parse(eventData);
+        if (typeof event.audio === "string") chunks.push(Buffer.from(event.audio, "base64"));
+      } catch {
+        continue;
+      }
+    }
+    if (!chunks.length) throw new Error("NVIDIA returned no audio data.");
+    return Buffer.concat(chunks);
+  }
+
+  return Buffer.from(await response.arrayBuffer());
+}
+
+export async function POST(request: Request) {
+  try {
+    const userId = await getAuthenticatedUserId(request);
+    if (!userId) {
+      return NextResponse.json({ error: "Sign in to generate voice replies." }, { status: 401 });
+    }
+
+    if (!process.env.NVIDIA_API_KEY && !process.env.AI_API_KEY) {
+      return NextResponse.json({ error: "NVIDIA voice generation is not configured." }, { status: 503 });
+    }
+
+    const promptPath = process.env.NVIDIA_TTS_VOICE_PROMPT_PATH?.trim();
+    const voicePromptUserId = process.env.NODE_ENV === "development" ? LOCAL_TEST_USER_ID : userId;
+
+    let body: { text?: unknown };
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ error: "Provide text to speak." }, { status: 400 });
+    }
+    if (typeof body.text !== "string") {
+      return NextResponse.json({ error: "Provide text to speak." }, { status: 400 });
+    }
+
+    const text = formatTextForSpeech(body.text);
+    if (!text) {
+      return NextResponse.json({ error: "There is no readable text in this reply." }, { status: 400 });
+    }
+    if (text.length > MAX_SPEECH_TEXT_LENGTH) {
+      return NextResponse.json({ error: "This reply is too long to read aloud." }, { status: 413 });
+    }
+
+    let promptAudio: Buffer;
+    try {
+      promptAudio = await loadVoicePromptForUser(voicePromptUserId, promptPath);
+    } catch (error) {
+      console.error("Could not load NVIDIA voice prompt:", error);
+      return NextResponse.json({ error: "The configured NVIDIA voice sample could not be loaded." }, { status: 503 });
+    }
+    if (!promptAudio) {
+      return NextResponse.json(
+        {
+          error: "Configure a stored voice sample for the local test account or set NVIDIA_TTS_VOICE_PROMPT_PATH with a 3–10 second WAV voice sample.",
+        },
+        { status: 503 },
+      );
+    }
+    if (promptAudio.length > MAX_REFERENCE_AUDIO_BYTES) {
+      return NextResponse.json({ error: "The configured NVIDIA voice sample must be under 10 MB." }, { status: 503 });
+    }
+    const promptWav = validateReferenceWav(promptAudio);
+    if (!promptWav) {
+      return NextResponse.json(
+        { error: "The NVIDIA voice sample must be 3–10 seconds, mono, 16-bit PCM WAV at 22.05 kHz or higher." },
+        { status: 503 },
+      );
+    }
+
+    const config = getNvidiaAIConfig();
+    const endpoint = process.env.NVIDIA_TTS_API_URL?.trim() || NVIDIA_TTS_DEFAULT_URL;
+    const audioParts: Buffer[] = [];
+    for (const chunk of splitTextForSpeech(text)) {
+      audioParts.push(await synthesizeSpeech(
+        chunk,
+        promptAudio,
+        promptWav.sampleRate,
+        config.apiKey,
+        endpoint,
+      ));
+    }
+
+    const audio = combineWavAudio(audioParts);
+    return new Response(new Blob([Uint8Array.from(audio)], { type: "audio/wav" }), {
+      headers: {
+        "Content-Type": "audio/wav",
+        "Cache-Control": "no-store",
+      },
+    });
+  } catch (error) {
+    console.error("Speech generation request failed:", error);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Voice generation failed. Please try again." },
+      { status: 502 },
+    );
+  }
+}

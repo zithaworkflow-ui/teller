@@ -76,6 +76,16 @@ async function ensureSchema() {
         )
       `);
       await getPool().query(`
+        CREATE TABLE IF NOT EXISTS teller_user_voice_prompts (
+          user_id TEXT PRIMARY KEY,
+          file_name TEXT NOT NULL,
+          content_type TEXT NOT NULL,
+          file_size INTEGER NOT NULL,
+          media_data BYTEA NOT NULL,
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `);
+      await getPool().query(`
         CREATE TABLE IF NOT EXISTS teller_user_daily_image_usage (
           user_id TEXT NOT NULL,
           usage_date DATE NOT NULL,
@@ -411,6 +421,50 @@ export async function saveUserChatMedia(
     [mediaId, userId, historyId, fileName, contentType, mediaData.length, mediaData],
   );
   return mediaId;
+}
+
+export async function saveUserVoicePrompt(
+  userId: string,
+  fileName: string,
+  contentType: string,
+  mediaData: Buffer,
+) {
+  await ensureSchema();
+  await getPool().query(
+    `
+      INSERT INTO teller_user_voice_prompts (user_id, file_name, content_type, file_size, media_data, updated_at)
+      VALUES ($1, $2, $3, $4, $5, NOW())
+      ON CONFLICT (user_id) DO UPDATE SET
+        file_name = EXCLUDED.file_name,
+        content_type = EXCLUDED.content_type,
+        file_size = EXCLUDED.file_size,
+        media_data = EXCLUDED.media_data,
+        updated_at = NOW()
+    `,
+    [userId, fileName, contentType, mediaData.length, mediaData],
+  );
+}
+
+export async function getUserVoicePrompt(userId: string) {
+  await ensureSchema();
+  const result = await getPool().query<{
+    file_name: string;
+    content_type: string;
+    file_size: number;
+    media_data: Buffer;
+  }>(
+    "SELECT file_name, content_type, file_size, media_data FROM teller_user_voice_prompts WHERE user_id = $1",
+    [userId],
+  );
+  const row = result.rows[0];
+  return row
+    ? {
+        fileName: row.file_name,
+        contentType: row.content_type,
+        fileSize: row.file_size,
+        mediaData: row.media_data,
+      }
+    : null;
 }
 
 export async function getUserChatMedia(userId: string, mediaId: string) {

@@ -14,6 +14,7 @@ import {
   Mic,
   Paperclip,
   Sparkles,
+  Volume2,
   X,
 } from "lucide-react";
 import katex from "katex";
@@ -418,6 +419,20 @@ export default function ChatWindow() {
   const [isThemeMenuOpen, setIsThemeMenuOpen] = useState(false);
   const [isModeMenuOpen, setIsModeMenuOpen] = useState(false);
   const [copiedMessage, setCopiedMessage] = useState<number | null>(null);
+  const [voiceReplyLoading, setVoiceReplyLoading] = useState<number | null>(null);
+  const [voiceReplyError, setVoiceReplyError] = useState<{
+    index: number;
+    historyId: string | null;
+    content: string;
+    message: string;
+  } | null>(null);
+  const [voiceReplyAudio, setVoiceReplyAudio] = useState<{
+    index: number;
+    historyId: string | null;
+    content: string;
+    url: string;
+  } | null>(null);
+  const voiceReplyAudioUrlRef = useRef<string | null>(null);
   const [isMounted, setIsMounted] = useState(false);
   const { user, isAuthenticated, isLoading: isAuthLoading, loginWithRedirect, logout, getAccessTokenSilently } = useAppAuth();
   const authReady = isMounted && !isAuthLoading;
@@ -443,6 +458,10 @@ export default function ChatWindow() {
 
   useEffect(() => {
     setIsMounted(true);
+  }, []);
+
+  useEffect(() => () => {
+    if (voiceReplyAudioUrlRef.current) URL.revokeObjectURL(voiceReplyAudioUrlRef.current);
   }, []);
 
   useEffect(() => {
@@ -1412,6 +1431,43 @@ export default function ChatWindow() {
     window.setTimeout(() => setCopiedMessage((current) => current === index ? null : current), 1400);
   }
 
+  async function generateVoiceReply(content: string, index: number) {
+    setVoiceReplyLoading(index);
+    setVoiceReplyError(null);
+    const requestedHistoryId = activeHistoryId;
+    try {
+      const token = isAuthenticated ? await getAccessTokenSilently() : null;
+      const response = await fetch("/api/speech", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ text: content }),
+      });
+      if (!response.ok) {
+        const result = await response.json();
+        throw new Error(result.error || "Voice generation failed.");
+      }
+
+      const audioBlob = await response.blob();
+      if (requestedHistoryId !== activeHistoryId) return;
+      if (voiceReplyAudioUrlRef.current) URL.revokeObjectURL(voiceReplyAudioUrlRef.current);
+      const url = URL.createObjectURL(audioBlob);
+      voiceReplyAudioUrlRef.current = url;
+      setVoiceReplyAudio({ index, historyId: requestedHistoryId, content, url });
+    } catch (error) {
+      setVoiceReplyError({
+        index,
+        historyId: requestedHistoryId,
+        content,
+        message: getErrorMessage(error),
+      });
+    } finally {
+      setVoiceReplyLoading(null);
+    }
+  }
+
   function editMessage(message: Message, index: number) {
     const editedMessages = messages.slice(0, index);
     setMessages(editedMessages);
@@ -1831,6 +1887,19 @@ export default function ChatWindow() {
                   {message.role === "assistant" ? (
                     <>
                       <button type="button" onClick={() => void copyText(message.content, index)} className="rounded px-1 text-xl leading-none text-neutral-300 hover:text-white" aria-label={copiedMessage === index ? "Copied" : "Copy message"} title={copiedMessage === index ? "Copied" : "Copy message"}>{copiedMessage === index ? "✓" : "⧉"}</button>
+                      <button
+                        type="button"
+                        onClick={() => void generateVoiceReply(message.content, index)}
+                        disabled={voiceReplyLoading === index}
+                        className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-neutral-300 hover:bg-white/10 hover:text-white disabled:opacity-50"
+                        aria-label="Listen to reply"
+                        title="Listen to reply"
+                      >
+                        {voiceReplyLoading === index
+                          ? <LoaderCircle size={14} className="animate-spin" aria-hidden="true" />
+                          : <Volume2 size={14} aria-hidden="true" />}
+                        {voiceReplyLoading === index ? "Generating voice..." : "Listen"}
+                      </button>
                     </>
                   ) : (
                     <button type="button" onClick={() => editMessage(message, index)} className="rounded px-1 text-xl leading-none text-neutral-300 hover:text-white" aria-label="Edit message" title="Edit message">✎</button>
@@ -1877,6 +1946,21 @@ export default function ChatWindow() {
                     </div>
                   )}
                 </div>
+                {voiceReplyAudio?.index === index &&
+                  voiceReplyAudio.historyId === activeHistoryId &&
+                  voiceReplyAudio.content === message.content && (
+                    <audio
+                      className="mt-2 h-9 w-full"
+                      controls
+                      src={voiceReplyAudio.url}
+                      aria-label="AI reply audio"
+                    />
+                  )}
+                {voiceReplyError?.index === index &&
+                  voiceReplyError.historyId === activeHistoryId &&
+                  voiceReplyError.content === message.content && (
+                  <p className="mt-2 text-xs text-rose-300" role="alert">{voiceReplyError.message}</p>
+                )}
               </div>
             ))}
 

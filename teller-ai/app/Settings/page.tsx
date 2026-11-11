@@ -1,9 +1,11 @@
 "use client";
 
 import { useAppAuth } from "@/components/Auth0Provider";
-import { useEffect, useState } from "react";
+import { LoaderCircle, Upload } from "lucide-react";
+import { useEffect, useState, type ChangeEvent } from "react";
 import PayPalUpgradeButton from "@/components/PayPalUpgradeButton";
 import { COUNTRY_OPTIONS, PHONE_CODE_OPTIONS, countryFlag, splitInternationalPhone } from "@/lib/country-options";
+import { LOCAL_TEST_USER_ID } from "@/lib/local-test-auth";
 
 export default function SettingsPage() {
   const { user, isAuthenticated, isLoading, loginWithRedirect, logout, getAccessTokenSilently } = useAppAuth();
@@ -23,6 +25,9 @@ export default function SettingsPage() {
   const [profileMessage, setProfileMessage] = useState("");
   const [profileError, setProfileError] = useState("");
   const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [isUploadingVoiceSample, setIsUploadingVoiceSample] = useState(false);
+  const [voiceSampleMessage, setVoiceSampleMessage] = useState("");
+  const [voiceSampleError, setVoiceSampleError] = useState("");
 
   const accountProfile = {
     name: [firstName, surname].filter(Boolean).join(" ") || user?.name || "Teller User",
@@ -111,6 +116,33 @@ export default function SettingsPage() {
       setProfileError(error instanceof Error ? error.message : "Could not update profile.");
     } finally {
       setIsSavingProfile(false);
+    }
+  }
+
+  async function uploadVoiceSample(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    setIsUploadingVoiceSample(true);
+    setVoiceSampleMessage("");
+    setVoiceSampleError("");
+    try {
+      const token = await getAccessTokenSilently();
+      const formData = new FormData();
+      formData.append("voiceSample", file);
+      const response = await fetch("/api/speech/voice-prompt", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Could not upload the voice sample.");
+      setVoiceSampleMessage("Voice sample saved to PostgreSQL.");
+    } catch (error) {
+      setVoiceSampleError(error instanceof Error ? error.message : "Could not upload the voice sample.");
+    } finally {
+      setIsUploadingVoiceSample(false);
     }
   }
 
@@ -244,6 +276,33 @@ export default function SettingsPage() {
               </div>
             )}
           </section>
+
+          {process.env.NODE_ENV === "development" && isAuthenticated && user?.sub === LOCAL_TEST_USER_ID && (
+            <section className="rounded-xl border border-neutral-800 bg-neutral-950 p-5">
+              <h2 className="text-lg font-semibold">AI voice sample</h2>
+              <p className="mt-2 text-sm text-neutral-400">
+                Upload a 3–10 second WAV recording to use as the local test account&apos;s voice for AI replies.
+                It must be mono, 16-bit PCM, and at least 22.05 kHz. Uploading replaces the saved sample.
+              </p>
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-white px-4 py-2 text-sm font-medium text-black has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-60">
+                  {isUploadingVoiceSample
+                    ? <LoaderCircle aria-hidden="true" className="h-4 w-4 animate-spin" />
+                    : <Upload aria-hidden="true" className="h-4 w-4" />}
+                  {isUploadingVoiceSample ? "Uploading..." : "Upload voice sample"}
+                  <input
+                    type="file"
+                    accept=".wav,audio/wav"
+                    onChange={(event) => void uploadVoiceSample(event)}
+                    disabled={isUploadingVoiceSample}
+                    className="sr-only"
+                  />
+                </label>
+                {voiceSampleMessage && <span role="status" className="text-sm text-emerald-400">{voiceSampleMessage}</span>}
+                {voiceSampleError && <span role="alert" className="text-sm text-red-400">{voiceSampleError}</span>}
+              </div>
+            </section>
+          )}
 
           {isAuthenticated && planName === "Free" && (
             <section className="rounded-xl border border-neutral-800 bg-neutral-950 p-5">
