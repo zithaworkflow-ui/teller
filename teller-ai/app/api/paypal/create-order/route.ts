@@ -2,11 +2,7 @@ import { NextResponse } from "next/server";
 import { getAuthenticatedUserId } from "@/lib/auth0-auth";
 import { getPlanKey, plans } from "@/lib/plans";
 import { LOCAL_TEST_USER_ID } from "@/lib/local-test-auth";
-
-const paypalBaseUrl =
-  process.env.PAYPAL_ENVIRONMENT === "production"
-    ? "https://api-m.paypal.com"
-    : "https://api-m.sandbox.paypal.com";
+import { paypalBaseUrl } from "@/lib/paypal";
 
 const planAmounts: Record<string, string> = {
   "pro-monthly": "90.00",

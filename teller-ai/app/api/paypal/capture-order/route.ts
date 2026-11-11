@@ -1,12 +1,8 @@
 import { NextResponse } from "next/server";
 import { plans, type PlanKey } from "@/lib/plans";
 import { LOCAL_TEST_USER_ID } from "@/lib/local-test-auth";
+import { paypalBaseUrl } from "@/lib/paypal";
 import { updateUserAccountPlan } from "@/lib/postgres";
-
-const paypalBaseUrl =
-  process.env.PAYPAL_ENVIRONMENT === "production"
-    ? "https://api-m.paypal.com"
-    : "https://api-m.sandbox.paypal.com";
 
 async function getPayPalAccessToken() {
   const credentials = Buffer.from(

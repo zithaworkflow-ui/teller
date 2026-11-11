@@ -30,6 +30,8 @@ Daily image-generation limits are 5 for Free, 25 for Pro, and 30 for Business pl
 
 Account profiles and plan subscriptions are stored in PostgreSQL. Profile updates and PayPal subscription activation do not require Auth0 Management API access. Existing subscribers whose plan was previously stored only in Auth0 metadata need their `teller_user_accounts.plan_key` migrated in PostgreSQL.
 
+PayPal checkout uses the Live API by default. Configure `PAYPAL_CLIENT_ID` and `PAYPAL_CLIENT_SECRET` with the Live app credentials and set `PAYPAL_ENVIRONMENT=production` in the deployment environment. Set `PAYPAL_ENVIRONMENT=sandbox` only when intentionally testing with Sandbox credentials. `NEXT_PUBLIC_APP_URL` must be the deployed application URL for PayPal return and cancellation redirects.
+
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
 ## CyberMail: Gmail and Calendar
