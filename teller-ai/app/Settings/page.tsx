@@ -5,7 +5,7 @@ import { LoaderCircle, Upload } from "lucide-react";
 import { useEffect, useState, type ChangeEvent } from "react";
 import PayPalUpgradeButton from "@/components/PayPalUpgradeButton";
 import { COUNTRY_OPTIONS, PHONE_CODE_OPTIONS, countryFlag, splitInternationalPhone } from "@/lib/country-options";
-import { LOCAL_TEST_USER_ID } from "@/lib/local-test-auth";
+import { prepareVoicePrompt } from "@/lib/voice-prompt-client";
 
 export default function SettingsPage() {
   const { user, isAuthenticated, isLoading, loginWithRedirect, logout, getAccessTokenSilently } = useAppAuth();
@@ -26,6 +26,7 @@ export default function SettingsPage() {
   const [profileError, setProfileError] = useState("");
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [isUploadingVoiceSample, setIsUploadingVoiceSample] = useState(false);
+  const [isPreparingVoiceSample, setIsPreparingVoiceSample] = useState(false);
   const [voiceSampleMessage, setVoiceSampleMessage] = useState("");
   const [voiceSampleError, setVoiceSampleError] = useState("");
 
@@ -125,12 +126,15 @@ export default function SettingsPage() {
     if (!file) return;
 
     setIsUploadingVoiceSample(true);
+    setIsPreparingVoiceSample(true);
     setVoiceSampleMessage("");
     setVoiceSampleError("");
     try {
+      const voicePrompt = await prepareVoicePrompt(file);
+      setIsPreparingVoiceSample(false);
       const token = await getAccessTokenSilently();
       const formData = new FormData();
-      formData.append("voiceSample", file);
+      formData.append("voiceSample", voicePrompt, "voice-prompt.wav");
       const response = await fetch("/api/speech/voice-prompt", {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
@@ -138,11 +142,12 @@ export default function SettingsPage() {
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Could not upload the voice sample.");
-      setVoiceSampleMessage("Voice sample saved to PostgreSQL.");
+      setVoiceSampleMessage("First 10 seconds prepared and saved to PostgreSQL.");
     } catch (error) {
       setVoiceSampleError(error instanceof Error ? error.message : "Could not upload the voice sample.");
     } finally {
       setIsUploadingVoiceSample(false);
+      setIsPreparingVoiceSample(false);
     }
   }
 
@@ -277,22 +282,26 @@ export default function SettingsPage() {
             )}
           </section>
 
-          {process.env.NODE_ENV === "development" && isAuthenticated && user?.sub === LOCAL_TEST_USER_ID && (
+          {isAuthenticated && (
             <section className="rounded-xl border border-neutral-800 bg-neutral-950 p-5">
               <h2 className="text-lg font-semibold">AI voice sample</h2>
               <p className="mt-2 text-sm text-neutral-400">
-                Upload a 3–10 second WAV recording to use as the local test account&apos;s voice for AI replies.
-                It must be mono, 16-bit PCM, and at least 22.05 kHz. Uploading replaces the saved sample.
+                Upload a browser-supported audio recording of at least 3 seconds. The first 10 seconds are
+                automatically cut and converted to mono, 16-bit PCM WAV at 22.05 kHz. Uploading replaces the saved sample.
               </p>
               <div className="mt-4 flex flex-wrap items-center gap-3">
                 <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-white px-4 py-2 text-sm font-medium text-black has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-60">
                   {isUploadingVoiceSample
                     ? <LoaderCircle aria-hidden="true" className="h-4 w-4 animate-spin" />
                     : <Upload aria-hidden="true" className="h-4 w-4" />}
-                  {isUploadingVoiceSample ? "Uploading..." : "Upload voice sample"}
+                  {isPreparingVoiceSample
+                    ? "Preparing..."
+                    : isUploadingVoiceSample
+                      ? "Uploading..."
+                      : "Upload voice sample"}
                   <input
                     type="file"
-                    accept=".wav,audio/wav"
+                    accept="audio/*"
                     onChange={(event) => void uploadVoiceSample(event)}
                     disabled={isUploadingVoiceSample}
                     className="sr-only"

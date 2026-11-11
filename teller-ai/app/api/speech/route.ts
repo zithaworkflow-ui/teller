@@ -1,7 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { NextResponse } from "next/server";
 import { getAuthenticatedUserId } from "@/lib/auth0-auth";
-import { LOCAL_TEST_USER_ID } from "@/lib/local-test-auth";
 import { getNvidiaAIConfig } from "@/lib/nvidia-ai";
 import { getUserVoicePrompt, saveUserVoicePrompt } from "@/lib/postgres";
 import { formatTextForSpeech, splitTextForSpeech } from "@/lib/voice-format";
@@ -141,7 +140,6 @@ export async function POST(request: Request) {
     }
 
     const promptPath = process.env.NVIDIA_TTS_VOICE_PROMPT_PATH?.trim();
-    const voicePromptUserId = process.env.NODE_ENV === "development" ? LOCAL_TEST_USER_ID : userId;
 
     let body: { text?: unknown };
     try {
@@ -161,9 +159,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "This reply is too long to read aloud." }, { status: 413 });
     }
 
-    let promptAudio: Buffer;
+    let promptAudio: Buffer | null;
     try {
-      promptAudio = await loadVoicePromptForUser(voicePromptUserId, promptPath);
+      promptAudio = await loadVoicePromptForUser(userId, promptPath);
     } catch (error) {
       console.error("Could not load NVIDIA voice prompt:", error);
       return NextResponse.json({ error: "The configured NVIDIA voice sample could not be loaded." }, { status: 503 });
@@ -171,7 +169,7 @@ export async function POST(request: Request) {
     if (!promptAudio) {
       return NextResponse.json(
         {
-          error: "Configure a stored voice sample for the local test account or set NVIDIA_TTS_VOICE_PROMPT_PATH with a 3–10 second WAV voice sample.",
+          error: "Upload a voice sample in Account Settings or set NVIDIA_TTS_VOICE_PROMPT_PATH with a 3–10 second WAV voice sample.",
         },
         { status: 503 },
       );
