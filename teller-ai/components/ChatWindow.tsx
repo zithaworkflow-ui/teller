@@ -428,11 +428,12 @@ export default function ChatWindow() {
     content: string;
     message: string;
   } | null>(null);
-  const [voiceReplyAudio, setVoiceReplyAudio] = useState<{
+  const voiceReplyAudioRef = useRef<{
     index: number;
     historyId: string | null;
     content: string;
     url: string;
+    audio: HTMLAudioElement;
   } | null>(null);
   const voiceReplyAudioUrlRef = useRef<string | null>(null);
   const [isMounted, setIsMounted] = useState(false);
@@ -463,8 +464,19 @@ export default function ChatWindow() {
   }, []);
 
   useEffect(() => () => {
+    voiceReplyAudioRef.current?.audio.pause();
     if (voiceReplyAudioUrlRef.current) URL.revokeObjectURL(voiceReplyAudioUrlRef.current);
   }, []);
+
+  useEffect(() => {
+    const voiceReplyAudio = voiceReplyAudioRef.current;
+    if (voiceReplyAudio && voiceReplyAudio.historyId !== activeHistoryId) {
+      voiceReplyAudio.audio.pause();
+      URL.revokeObjectURL(voiceReplyAudio.url);
+      voiceReplyAudioRef.current = null;
+      voiceReplyAudioUrlRef.current = null;
+    }
+  }, [activeHistoryId]);
 
   useEffect(() => {
     if (activeAgent !== "cyber" || isAuthLoading) return;
@@ -1447,6 +1459,26 @@ export default function ChatWindow() {
   }
 
   async function generateVoiceReply(content: string, index: number) {
+    const existingAudio = voiceReplyAudioRef.current;
+    if (
+      existingAudio?.index === index &&
+      existingAudio.historyId === activeHistoryId &&
+      existingAudio.content === content
+    ) {
+      setVoiceReplyError(null);
+      try {
+        await existingAudio.audio.play();
+      } catch {
+        setVoiceReplyError({
+          index,
+          historyId: activeHistoryId,
+          content,
+          message: "Your browser blocked automatic audio playback. Click Listen to try again.",
+        });
+      }
+      return;
+    }
+
     setVoiceReplyLoading(index);
     setVoiceReplyError(null);
     const requestedHistoryId = activeHistoryId;
@@ -1467,10 +1499,13 @@ export default function ChatWindow() {
 
       const audioBlob = await response.blob();
       if (requestedHistoryId !== activeHistoryId) return;
+      voiceReplyAudioRef.current?.audio.pause();
       if (voiceReplyAudioUrlRef.current) URL.revokeObjectURL(voiceReplyAudioUrlRef.current);
       const url = URL.createObjectURL(audioBlob);
       voiceReplyAudioUrlRef.current = url;
-      setVoiceReplyAudio({ index, historyId: requestedHistoryId, content, url });
+      const audio = new Audio(url);
+      voiceReplyAudioRef.current = { index, historyId: requestedHistoryId, content, url, audio };
+      await audio.play();
     } catch (error) {
       setVoiceReplyError({
         index,
@@ -1982,16 +2017,6 @@ export default function ChatWindow() {
                     </div>
                   )}
                 </div>
-                {voiceReplyAudio?.index === index &&
-                  voiceReplyAudio.historyId === activeHistoryId &&
-                  voiceReplyAudio.content === message.content && (
-                    <audio
-                      className="mt-2 h-9 w-full"
-                      controls
-                      src={voiceReplyAudio.url}
-                      aria-label="AI reply audio"
-                    />
-                  )}
                 {voiceReplyError?.index === index &&
                   voiceReplyError.historyId === activeHistoryId &&
                   voiceReplyError.content === message.content && (

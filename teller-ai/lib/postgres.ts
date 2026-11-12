@@ -1,4 +1,5 @@
 import { Pool } from "pg";
+import { DEFAULT_FISH_AUDIO_REFERENCE_ID } from "@/lib/fish-audio";
 
 type UserChatData = {
   history: unknown[];
@@ -95,6 +96,21 @@ async function ensureSchema() {
           updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
       `);
+      await getPool().query(`
+        CREATE TABLE IF NOT EXISTS teller_shared_voice_settings (
+          id TEXT PRIMARY KEY CHECK (id = 'shared'),
+          fish_reference_id TEXT NOT NULL,
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `);
+      await getPool().query(
+        `
+          INSERT INTO teller_shared_voice_settings (id, fish_reference_id)
+          VALUES ('shared', $1)
+          ON CONFLICT (id) DO NOTHING
+        `,
+        [DEFAULT_FISH_AUDIO_REFERENCE_ID],
+      );
       await getPool().query(`
         CREATE TABLE IF NOT EXISTS teller_user_daily_image_usage (
           user_id TEXT NOT NULL,
@@ -533,6 +549,28 @@ export async function getSharedVoicePrompt() {
         mediaData: row.media_data,
       }
     : null;
+}
+
+export async function getSharedFishReferenceId() {
+  await ensureSchema();
+  const result = await getPool().query<{ fish_reference_id: string }>(
+    "SELECT fish_reference_id FROM teller_shared_voice_settings WHERE id = 'shared'",
+  );
+  return result.rows[0]?.fish_reference_id ?? DEFAULT_FISH_AUDIO_REFERENCE_ID;
+}
+
+export async function saveSharedFishReferenceId(referenceId: string) {
+  await ensureSchema();
+  await getPool().query(
+    `
+      INSERT INTO teller_shared_voice_settings (id, fish_reference_id, updated_at)
+      VALUES ('shared', $1, NOW())
+      ON CONFLICT (id) DO UPDATE SET
+        fish_reference_id = EXCLUDED.fish_reference_id,
+        updated_at = NOW()
+    `,
+    [referenceId],
+  );
 }
 
 export async function getUserChatMedia(userId: string, mediaId: string) {

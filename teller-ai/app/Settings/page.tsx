@@ -5,6 +5,7 @@ import { LoaderCircle, Upload } from "lucide-react";
 import { useEffect, useState, type ChangeEvent } from "react";
 import PayPalUpgradeButton from "@/components/PayPalUpgradeButton";
 import { COUNTRY_OPTIONS, PHONE_CODE_OPTIONS, countryFlag, splitInternationalPhone } from "@/lib/country-options";
+import { DEFAULT_FISH_AUDIO_REFERENCE_ID } from "@/lib/fish-audio";
 import { prepareVoicePrompt } from "@/lib/voice-prompt-client";
 import { isVoicePromptManager, VOICE_PROMPT_MANAGER_EMAIL } from "@/lib/voice-prompt-access";
 
@@ -31,6 +32,11 @@ export default function SettingsPage() {
   const [isPreparingVoiceSample, setIsPreparingVoiceSample] = useState(false);
   const [voiceSampleMessage, setVoiceSampleMessage] = useState("");
   const [voiceSampleError, setVoiceSampleError] = useState("");
+  const [fishReferenceId, setFishReferenceId] = useState(DEFAULT_FISH_AUDIO_REFERENCE_ID);
+  const [isLoadingFishReferenceId, setIsLoadingFishReferenceId] = useState(false);
+  const [isSavingFishReferenceId, setIsSavingFishReferenceId] = useState(false);
+  const [fishReferenceMessage, setFishReferenceMessage] = useState("");
+  const [fishReferenceError, setFishReferenceError] = useState("");
 
   const accountProfile = {
     name: [firstName, surname].filter(Boolean).join(" ") || user?.name || "Teller User",
@@ -92,6 +98,35 @@ export default function SettingsPage() {
     };
   }, [getAccessTokenSilently, isAuthenticated, isLoading, user]);
 
+  useEffect(() => {
+    if (isLoading || !isAuthenticated || !canManageVoiceSample) return;
+    let cancelled = false;
+    async function loadFishReferenceId() {
+      setIsLoadingFishReferenceId(true);
+      try {
+        const token = await getAccessTokenSilently();
+        const response = await fetch("/api/speech/fish-model", {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: "no-store",
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || "Could not load the Fish Audio model ID.");
+        if (!cancelled) setFishReferenceId(result.referenceId);
+      } catch (error) {
+        if (!cancelled) setFishReferenceError(
+          error instanceof Error ? error.message : "Could not load the Fish Audio model ID.",
+        );
+      } finally {
+        if (!cancelled) setIsLoadingFishReferenceId(false);
+      }
+    }
+
+    void loadFishReferenceId();
+    return () => {
+      cancelled = true;
+    };
+  }, [canManageVoiceSample, getAccessTokenSilently, isAuthenticated, isLoading]);
+
   async function saveProfile() {
     setIsSavingProfile(true);
     setProfileMessage("");
@@ -150,6 +185,33 @@ export default function SettingsPage() {
     } finally {
       setIsUploadingVoiceSample(false);
       setIsPreparingVoiceSample(false);
+    }
+  }
+
+  async function saveFishReferenceId() {
+    setIsSavingFishReferenceId(true);
+    setFishReferenceMessage("");
+    setFishReferenceError("");
+    try {
+      const token = await getAccessTokenSilently();
+      const response = await fetch("/api/speech/fish-model", {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ referenceId: fishReferenceId }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Could not save the Fish Audio model ID.");
+      setFishReferenceId(result.referenceId);
+      setFishReferenceMessage("Fish Audio model ID saved.");
+    } catch (error) {
+      setFishReferenceError(
+        error instanceof Error ? error.message : "Could not save the Fish Audio model ID.",
+      );
+    } finally {
+      setIsSavingFishReferenceId(false);
     }
   }
 
@@ -313,6 +375,37 @@ export default function SettingsPage() {
                 {voiceSampleMessage && <span role="status" className="text-sm text-emerald-400">{voiceSampleMessage}</span>}
                 {voiceSampleError && <span role="alert" className="text-sm text-red-400">{voiceSampleError}</span>}
               </div>}
+              {canManageVoiceSample && (
+                <div className="mt-5 border-t border-neutral-800 pt-4">
+                  <label htmlFor="fish-audio-reference-id" className="block text-sm font-medium text-neutral-200">
+                    Fish Audio voice model ID
+                  </label>
+                  <p className="mt-1 text-sm text-neutral-400">
+                    Used only when speech falls back to Fish Audio. Changing this does not change the NVIDIA sample upload.
+                  </p>
+                  <div className="mt-3 flex flex-wrap items-center gap-3">
+                    <input
+                      id="fish-audio-reference-id"
+                      type="text"
+                      value={fishReferenceId}
+                      onChange={(event) => setFishReferenceId(event.target.value)}
+                      disabled={isLoadingFishReferenceId || isSavingFishReferenceId}
+                      maxLength={128}
+                      className="min-w-0 flex-1 rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-white disabled:opacity-60"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void saveFishReferenceId()}
+                      disabled={isLoadingFishReferenceId || isSavingFishReferenceId}
+                      className="rounded-lg bg-white px-4 py-2 text-sm font-medium text-black disabled:opacity-60"
+                    >
+                      {isSavingFishReferenceId ? "Saving..." : "Save model ID"}
+                    </button>
+                    {fishReferenceMessage && <span role="status" className="text-sm text-emerald-400">{fishReferenceMessage}</span>}
+                    {fishReferenceError && <span role="alert" className="text-sm text-red-400">{fishReferenceError}</span>}
+                  </div>
+                </div>
+              )}
             </section>
           )}
 

@@ -1,8 +1,13 @@
 const FISH_TTS_URL = "https://api.fish.audio/v1/tts";
 const FISH_TTS_MODEL = "s2.1-pro-free";
 const FISH_TTS_TIMEOUT_MS = 60_000;
+export const DEFAULT_FISH_AUDIO_REFERENCE_ID = "abfc6734fe0147c38da1095f7797ff8a";
 
-export async function synthesizeWithFishAudio(text: string, apiKey: string) {
+export async function synthesizeWithFishAudio(
+  text: string,
+  apiKey: string,
+  referenceId = DEFAULT_FISH_AUDIO_REFERENCE_ID,
+) {
   const response = await fetch(FISH_TTS_URL, {
     method: "POST",
     headers: {
@@ -11,7 +16,7 @@ export async function synthesizeWithFishAudio(text: string, apiKey: string) {
       Accept: "audio/mpeg",
       model: FISH_TTS_MODEL,
     },
-    body: JSON.stringify({ text, format: "mp3" }),
+    body: JSON.stringify({ text, reference_id: referenceId, format: "mp3" }),
     signal: AbortSignal.timeout(FISH_TTS_TIMEOUT_MS),
   });
 

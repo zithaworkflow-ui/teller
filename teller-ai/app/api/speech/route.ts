@@ -4,6 +4,7 @@ import { getAuthenticatedUserId } from "@/lib/auth0-auth";
 import { getNvidiaAIConfig } from "@/lib/nvidia-ai";
 import { synthesizeWithFishAudio } from "@/lib/fish-audio";
 import {
+  getSharedFishReferenceId,
   getSharedVoicePrompt,
   seedSharedVoicePromptIfMissing,
 } from "@/lib/postgres";
@@ -246,7 +247,8 @@ export async function POST(request: Request) {
     }
 
     try {
-      const audio = await synthesizeWithFishAudio(text, fishApiKey);
+      const referenceId = await getSharedFishReferenceId();
+      const audio = await synthesizeWithFishAudio(text, fishApiKey, referenceId);
       return new Response(new Blob([Uint8Array.from(audio)], { type: "audio/mpeg" }), {
         headers: {
           "Content-Type": "audio/mpeg",
