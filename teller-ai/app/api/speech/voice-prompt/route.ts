@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAuthenticatedUser } from "@/lib/auth0-auth";
+import { createFishVoiceModel, getFishAudioApiKey } from "@/lib/fish-audio";
 import { saveSharedVoicePrompt } from "@/lib/postgres";
 import { isVoicePromptManager } from "@/lib/voice-prompt-access";
 import { validateReferenceWav } from "@/lib/voice-prompt";
@@ -16,6 +17,10 @@ export async function POST(request: Request) {
   }
   if (!isVoicePromptManager(user.email, user.email_verified)) {
     return NextResponse.json({ error: SIGN_IN_ERROR }, { status: 403 });
+  }
+  const apiKey = getFishAudioApiKey();
+  if (!apiKey) {
+    return NextResponse.json({ error: "Fish Audio voice generation is not configured." }, { status: 503 });
   }
 
   const contentLength = Number(request.headers.get("content-length"));
@@ -52,11 +57,25 @@ export async function POST(request: Request) {
     );
   }
 
+  let modelId: string;
   try {
-    await saveSharedVoicePrompt("voice-prompt.wav", "audio/wav", audio);
+    modelId = await createFishVoiceModel(apiKey, audio);
+  } catch (error) {
+    console.error("Could not create Fish Audio voice model:", error);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Could not create the Fish Audio voice model." },
+      { status: 502 },
+    );
+  }
+
+  try {
+    await saveSharedVoicePrompt("voice-prompt.wav", "audio/wav", audio, modelId);
     return NextResponse.json({ ok: true });
   } catch (error) {
-    console.error("Could not save voice sample:", error);
-    return NextResponse.json({ error: "Could not save the voice sample to PostgreSQL." }, { status: 500 });
+    console.error("Could not save Fish Audio voice sample:", error);
+    return NextResponse.json(
+      { error: "Fish Audio created the voice model, but the voice sample could not be saved to PostgreSQL." },
+      { status: 500 },
+    );
   }
 }

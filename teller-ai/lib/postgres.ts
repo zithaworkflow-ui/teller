@@ -92,8 +92,13 @@ async function ensureSchema() {
           content_type TEXT NOT NULL,
           file_size INTEGER NOT NULL,
           media_data BYTEA NOT NULL,
+          fish_model_id TEXT,
           updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
+      `);
+      await getPool().query(`
+        ALTER TABLE teller_shared_voice_prompt
+        ADD COLUMN IF NOT EXISTS fish_model_id TEXT
       `);
       await getPool().query(`
         CREATE TABLE IF NOT EXISTS teller_user_daily_image_usage (
@@ -481,36 +486,22 @@ export async function saveSharedVoicePrompt(
   fileName: string,
   contentType: string,
   mediaData: Buffer,
+  fishModelId: string,
 ) {
   await ensureSchema();
   await getPool().query(
     `
-      INSERT INTO teller_shared_voice_prompt (id, file_name, content_type, file_size, media_data, updated_at)
-      VALUES ('shared', $1, $2, $3, $4, NOW())
+      INSERT INTO teller_shared_voice_prompt (id, file_name, content_type, file_size, media_data, fish_model_id, updated_at)
+      VALUES ('shared', $1, $2, $3, $4, $5, NOW())
       ON CONFLICT (id) DO UPDATE SET
         file_name = EXCLUDED.file_name,
         content_type = EXCLUDED.content_type,
         file_size = EXCLUDED.file_size,
         media_data = EXCLUDED.media_data,
+        fish_model_id = EXCLUDED.fish_model_id,
         updated_at = NOW()
     `,
-    [fileName, contentType, mediaData.length, mediaData],
-  );
-}
-
-export async function seedSharedVoicePromptIfMissing(
-  fileName: string,
-  contentType: string,
-  mediaData: Buffer,
-) {
-  await ensureSchema();
-  await getPool().query(
-    `
-      INSERT INTO teller_shared_voice_prompt (id, file_name, content_type, file_size, media_data)
-      VALUES ('shared', $1, $2, $3, $4)
-      ON CONFLICT (id) DO NOTHING
-    `,
-    [fileName, contentType, mediaData.length, mediaData],
+    [fileName, contentType, mediaData.length, mediaData, fishModelId],
   );
 }
 
@@ -521,8 +512,9 @@ export async function getSharedVoicePrompt() {
     content_type: string;
     file_size: number;
     media_data: Buffer;
+    fish_model_id: string | null;
   }>(
-    "SELECT file_name, content_type, file_size, media_data FROM teller_shared_voice_prompt WHERE id = 'shared'",
+    "SELECT file_name, content_type, file_size, media_data, fish_model_id FROM teller_shared_voice_prompt WHERE id = 'shared'",
   );
   const row = result.rows[0];
   return row
@@ -531,6 +523,7 @@ export async function getSharedVoicePrompt() {
         contentType: row.content_type,
         fileSize: row.file_size,
         mediaData: row.media_data,
+        modelId: row.fish_model_id,
       }
     : null;
 }
