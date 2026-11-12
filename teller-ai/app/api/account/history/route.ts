@@ -54,12 +54,14 @@ function sanitizeHistory(value: unknown[]) {
               return {
                 role: message.role === "user" ? "user" : "assistant",
                 content: typeof message.content === "string" ? message.content.slice(0, 4000) : "",
-                ...(Array.isArray(message.suggestions)
+                ...(Array.isArray(message.choices)
                   ? {
-                      suggestions: message.suggestions
-                        .filter((suggestion): suggestion is string => typeof suggestion === "string")
+                      choices: message.choices
+                        .filter((choice): choice is string => typeof choice === "string")
+                        .map((choice) => choice.trim())
+                        .filter(Boolean)
                         .slice(0, 3)
-                        .map((suggestion) => suggestion.slice(0, 180)),
+                        .map((choice) => choice.slice(0, 180)),
                     }
                   : {}),
                 ...(typeof message.imageDescription === "string"

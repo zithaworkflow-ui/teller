@@ -25,7 +25,7 @@ import { encodeAudioChunksToWav } from "@/lib/recording-audio";
 type Message = {
   role: "user" | "assistant";
   content: string;
-  suggestions?: string[];
+  choices?: string[];
   pendingAction?: CyberPendingAction;
   imageUrl?: string;
   imageStoragePath?: string;
@@ -396,6 +396,7 @@ export default function ChatWindow() {
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const holdTimerRef = useRef<number | null>(null);
   const voicePressActiveRef = useRef(false);
@@ -991,6 +992,7 @@ export default function ChatWindow() {
           );
 
       if (shouldGenerateImage) {
+        setIsGeneratingImage(true);
         const imagePrompt = currentVisualDirection ||
           (shouldCreateImageVariation
             ? [
@@ -1101,10 +1103,10 @@ export default function ChatWindow() {
           role: "assistant",
           content: data.reply,
           file: null,
-          ...(Array.isArray(data.suggestions)
+          ...(Array.isArray(data.choices)
             ? {
-                suggestions: data.suggestions.filter(
-                  (question: unknown): question is string => typeof question === "string",
+                choices: data.choices.filter(
+                  (choice: unknown): choice is string => typeof choice === "string",
                 ).slice(0, 3),
               }
             : {}),
@@ -1176,6 +1178,7 @@ export default function ChatWindow() {
       setMessages([...updatedMessages, { role: "assistant", content: errorMessage, file: null }]);
     } finally {
       setLoading(false);
+      setIsGeneratingImage(false);
       setPendingFile(null);
     }
   }
@@ -1884,19 +1887,19 @@ export default function ChatWindow() {
                 {message.role === "assistant" &&
                   activeAgent === "teller" &&
                   index === messages.length - 1 &&
-                  message.suggestions?.length ? (
-                    <div className="mt-4" aria-label="Suggested follow-up questions">
-                      <p className="mb-2 text-xs font-medium text-neutral-400">Explore next</p>
+                  message.choices?.length ? (
+                    <div className="mt-4" aria-label="Suggested answers">
+                      <p className="mb-2 text-xs font-medium text-neutral-400">Choose a response</p>
                       <div className="flex flex-wrap gap-2">
-                        {message.suggestions.map((question) => (
+                        {message.choices.map((choice) => (
                           <button
-                            key={question}
+                            key={choice}
                             type="button"
-                            onClick={() => void sendMessage(question)}
+                            onClick={() => void sendMessage(choice)}
                             disabled={loading || monthlyChatCount >= usageLimit}
                             className="rounded-full border border-neutral-600 bg-neutral-900/70 px-3 py-2 text-left text-xs leading-5 text-neutral-200 transition hover:border-neutral-400 hover:bg-neutral-700 disabled:cursor-not-allowed disabled:opacity-50"
                           >
-                            {question}
+                            {choice}
                           </button>
                         ))}
                       </div>
@@ -2009,7 +2012,27 @@ export default function ChatWindow() {
             )}
 
             {loading && (
-              <div className="mr-auto max-w-[85%] rounded-xl bg-neutral-800 p-4 [overflow-wrap:anywhere]">{activeAgent === "cyber" ? "CyberMail is working..." : activeAgent === "maps" ? "CyberMaps is working..." : "Teller AI is thinking..."}</div>
+              <div
+                className="mr-auto flex max-w-[85%] items-center gap-3 rounded-xl bg-neutral-800 p-4 [overflow-wrap:anywhere]"
+                role="status"
+              >
+                {isGeneratingImage ? (
+                  <>
+                    <span className="pixel-loader" aria-hidden="true">
+                      {Array.from({ length: 16 }, (_, index) => (
+                        <span className="pixel-loader__pixel" key={index} />
+                      ))}
+                    </span>
+                    <span>Creating your image...</span>
+                  </>
+                ) : (
+                  activeAgent === "cyber"
+                    ? "CyberMail is working..."
+                    : activeAgent === "maps"
+                      ? "CyberMaps is working..."
+                      : "Teller AI is thinking..."
+                )}
+              </div>
             )}
 
             <div ref={messagesEndRef} />
