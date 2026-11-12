@@ -144,7 +144,7 @@ export default function SettingsPage() {
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Could not upload the voice sample.");
-      setVoiceSampleMessage("Fish Audio voice model created and saved.");
+      setVoiceSampleMessage("First 10 seconds prepared and saved to PostgreSQL.");
     } catch (error) {
       setVoiceSampleError(error instanceof Error ? error.message : "Could not upload the voice sample.");
     } finally {
@@ -289,7 +289,7 @@ export default function SettingsPage() {
               <h2 className="text-lg font-semibold">Shared AI voice sample</h2>
               <p className="mt-2 text-sm text-neutral-400">
                 {canManageVoiceSample
-                  ? "This Fish Audio voice model is used for speech generation across all accounts. Upload a browser-supported audio recording of at least 3 seconds. The first 10 seconds are automatically cut and converted to mono, 16-bit PCM WAV at 22.05 kHz. Uploading creates and saves a replacement model."
+                  ? "This sample is used for speech generation across all accounts. Upload a browser-supported audio recording of at least 3 seconds. The first 10 seconds are automatically cut and converted to mono, 16-bit PCM WAV at 22.05 kHz. Uploading replaces the shared sample."
                   : `This sample is used for speech generation across all accounts and is managed by ${VOICE_PROMPT_MANAGER_EMAIL}.`}
               </p>
               {canManageVoiceSample && <div className="mt-4 flex flex-wrap items-center gap-3">
