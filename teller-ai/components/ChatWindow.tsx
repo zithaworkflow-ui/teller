@@ -25,6 +25,7 @@ import { encodeAudioChunksToWav } from "@/lib/recording-audio";
 type Message = {
   role: "user" | "assistant";
   content: string;
+  suggestions?: string[];
   pendingAction?: CyberPendingAction;
   imageUrl?: string;
   imageStoragePath?: string;
@@ -1096,7 +1097,18 @@ export default function ChatWindow() {
         if (isAuthenticated && !hasServerUsageCount) {
           setMonthlyChatCount((count) => count + 1);
         }
-        const assistantMessage: Message = { role: "assistant", content: data.reply, file: null };
+        const assistantMessage: Message = {
+          role: "assistant",
+          content: data.reply,
+          file: null,
+          ...(Array.isArray(data.suggestions)
+            ? {
+                suggestions: data.suggestions.filter(
+                  (question: unknown): question is string => typeof question === "string",
+                ).slice(0, 3),
+              }
+            : {}),
+        };
         setMessages([...updatedMessages, assistantMessage]);
 
         // If the server returned a suggested title, update the active history
@@ -1145,7 +1157,7 @@ export default function ChatWindow() {
                     const next = prev.slice();
                     const idx = next.findIndex((h) => h.id === activeHistoryId);
                     if (idx !== -1) {
-                      next[idx] = { ...next[idx], title: d.title, messages: [...updatedMessages, { role: "assistant", content: data.reply }], updatedAt: Date.now() };
+                      next[idx] = { ...next[idx], title: d.title, messages: [...updatedMessages, assistantMessage], updatedAt: Date.now() };
                       const item = next.splice(idx, 1)[0];
                       next.unshift(item);
                     }
@@ -1869,6 +1881,27 @@ export default function ChatWindow() {
                 <div className="min-w-0 max-w-full text-sm leading-7 [overflow-wrap:anywhere]">
                   <FormattedMessage content={message.content} showCodeCopy={message.role === "assistant"} onCopyCode={(code) => void copyText(code, index)} />
                 </div>
+                {message.role === "assistant" &&
+                  activeAgent === "teller" &&
+                  index === messages.length - 1 &&
+                  message.suggestions?.length ? (
+                    <div className="mt-4" aria-label="Suggested follow-up questions">
+                      <p className="mb-2 text-xs font-medium text-neutral-400">Explore next</p>
+                      <div className="flex flex-wrap gap-2">
+                        {message.suggestions.map((question) => (
+                          <button
+                            key={question}
+                            type="button"
+                            onClick={() => void sendMessage(question)}
+                            disabled={loading || monthlyChatCount >= usageLimit}
+                            className="rounded-full border border-neutral-600 bg-neutral-900/70 px-3 py-2 text-left text-xs leading-5 text-neutral-200 transition hover:border-neutral-400 hover:bg-neutral-700 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {question}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
                 {message.imageUrl && (
                   <>
                     <img
