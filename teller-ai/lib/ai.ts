@@ -40,6 +40,17 @@ const MAX_MESSAGE_CHARS = 12_000;
 const MAX_TOTAL_MESSAGE_CHARS = 90_000;
 const MAX_ALLOWED_OUTPUT_TOKENS = 2_048;
 
+export type TellerToolCall = {
+  id: string;
+  type: "function";
+  function: { name: string; arguments: string };
+};
+
+export type TellerAIMessage = {
+  content?: string | null;
+  tool_calls?: TellerToolCall[];
+};
+
 function getMaxTokens(requestedTokens?: number) {
   const configuredTokens = Number.parseInt(process.env.AI_MAX_TOKENS || "2048", 10);
   const defaultTokens = Number.isFinite(configuredTokens) ? configuredTokens : 2048;
@@ -62,13 +73,22 @@ export function isPromptTokenLimitError(error: unknown) {
   return /prompt tokens limit exceeded:\s*\d+\s*>\s*\d+/i.test(message);
 }
 
-function prepareMessages(messages: { role: string; content: string }[], compact = false) {
+function prepareMessages(
+  messages: Array<{ role: string; content?: string | null; [key: string]: unknown }>,
+  compact = false,
+) {
   const recentMessages = messages
-    .filter((message) => message && typeof message.content === "string")
+    .filter((message) => message && (
+      typeof message.content === "string" ||
+      (message.role === "assistant" && Array.isArray(message.tool_calls))
+    ))
     .slice(-MAX_MESSAGES)
     .map((message) => ({
-      role: message.role === "assistant" ? "assistant" : "user",
-      content: message.content.slice(0, MAX_MESSAGE_CHARS),
+      ...message,
+      role: message.role === "assistant" || message.role === "tool" ? message.role : "user",
+      content: typeof message.content === "string"
+        ? message.content.slice(0, MAX_MESSAGE_CHARS)
+        : null,
     }));
 
   if (compact) {
@@ -80,26 +100,28 @@ function prepareMessages(messages: { role: string; content: string }[], compact 
   const boundedMessages = [];
   for (let index = recentMessages.length - 1; index >= 0; index -= 1) {
     const message = recentMessages[index];
-    if (totalChars + message.content.length > MAX_TOTAL_MESSAGE_CHARS) break;
+    const messageLength = message.content?.length || 0;
+    if (totalChars + messageLength > MAX_TOTAL_MESSAGE_CHARS) break;
     boundedMessages.unshift(message);
-    totalChars += message.content.length;
+    totalChars += messageLength;
   }
   return boundedMessages;
 }
 
-export async function callTellerAI(
-  messages: { role: string; content: string }[],
+async function callTellerAICompletion(
+  messages: Array<{ role: string; content?: string | null; [key: string]: unknown }>,
   options?: {
     maxTokens?: number;
     country?: string;
     compactPrompt?: boolean;
     systemPrompt?: string;
+    tools?: unknown[];
   },
-) {
+): Promise<TellerAIMessage> {
   const compactPrompt = options?.compactPrompt ?? false;
   const preparedMessages = prepareMessages(messages, compactPrompt);
   const data = await callRoutedChatCompletion<{
-    choices?: { message?: { content?: string | null } }[];
+    choices?: { message?: TellerAIMessage }[];
   }>({
       max_tokens: getMaxTokens(options?.maxTokens),
       messages: [
@@ -119,11 +141,37 @@ export async function callTellerAI(
         },
         ...preparedMessages,
       ],
+      ...(options?.tools ? { tools: options.tools, tool_choice: "auto" } : {}),
       temperature: 0.7,
   });
 
-  return (
-    data.choices?.[0]?.message?.content ||
-    "Sorry, I could not generate a response."
-  );
+  const message = data.choices?.[0]?.message;
+  if (!message) throw new Error("The AI service returned an empty response.");
+  return message;
+}
+
+export async function callTellerAIWithTools(
+  messages: Array<{ role: string; content?: string | null; [key: string]: unknown }>,
+  tools: unknown[],
+  options?: {
+    maxTokens?: number;
+    country?: string;
+    compactPrompt?: boolean;
+    systemPrompt?: string;
+  },
+) {
+  return callTellerAICompletion(messages, { ...options, tools });
+}
+
+export async function callTellerAI(
+  messages: Array<{ role: string; content: string }>,
+  options?: {
+    maxTokens?: number;
+    country?: string;
+    compactPrompt?: boolean;
+    systemPrompt?: string;
+  },
+) {
+  const message = await callTellerAICompletion(messages, options);
+  return message.content || "Sorry, I could not generate a response.";
 }
