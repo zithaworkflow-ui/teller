@@ -26,7 +26,10 @@ import {
 export const runtime = "nodejs";
 
 const ANSWER_CHOICES_PROMPT =
-  "After the final answer, append an <answer_choices> block only when you can offer up to three concise, distinct choices that are either plausible predictions of what the user may naturally reply next based on the conversation, or valid direct responses to a specific question or offer you explicitly made in your final answer. Phrase every choice as a possible user message, not as a question or a suggestion for a new goal. Do not invent interests, actions, or follow-up topics the user has not indicated. If no choices clearly meet these rules, omit the block. Put one choice per line. Do not mention this block or include it in intermediate tool-call messages.";
+  "After the final answer, append an <answer_choices> block only when you can offer up to three concise, distinct choices that are either plausible predictions of what the user may naturally reply next based on the conversation, or valid direct responses to a specific question or offer you explicitly made in your final answer. Each choice must be written in the user's voice as something they could send. Never put a question addressed to the user in a choice: answer your own question with plausible user replies instead (for example, if you ask which operating system they use, offer grounded replies like 'Windows' or 'macOS', not 'What operating system do you use?'). Likewise, if you offer to check a manual, the reply could be 'Yes, check the manual', not 'Should I check the manual?'. Do not invent interests, actions, or follow-up topics the user has not indicated. If no choices clearly meet these rules, omit the block. Put one choice per line. Do not mention this block or include it in intermediate tool-call messages.";
+
+const QUESTION_START =
+  /^(?:what|why|when|where|who|whom|whose|which|how|can|could|would|should|do|does|did|is|are|am|was|were|will|shall|have|has|had)\b/i;
 
 function extractAnswerChoices(content: string) {
   const match = content.match(
@@ -39,7 +42,12 @@ function extractAnswerChoices(content: string) {
   const choices = match[1]
     .split(/\r?\n/)
     .map((line) => line.replace(/^\s*(?:[-*]\s*|\d+[.)]\s*)/, "").trim())
-    .filter((choice) => choice.length > 0 && choice.length <= 180)
+    .filter((choice) => (
+      choice.length > 0 &&
+      choice.length <= 180 &&
+      !choice.includes("?") &&
+      !QUESTION_START.test(choice)
+    ))
     .slice(0, 3);
 
   return {
