@@ -26,7 +26,7 @@ import {
 export const runtime = "nodejs";
 
 const ANSWER_CHOICES_PROMPT =
-  "After the final answer, append an <answer_choices> block containing up to three concise, distinct options the user could choose as their next message. Phrase each as a direct answer, preference, or action (not as a question). Make them relevant to the answer and useful for continuing the conversation. If no useful options fit, omit the block. Put one option per line. Do not mention this block or include it in intermediate tool-call messages.";
+  "After the final answer, append an <answer_choices> block only when you can offer up to three concise, distinct choices that are either plausible predictions of what the user may naturally reply next based on the conversation, or valid direct responses to a specific question or offer you explicitly made in your final answer. Phrase every choice as a possible user message, not as a question or a suggestion for a new goal. Do not invent interests, actions, or follow-up topics the user has not indicated. If no choices clearly meet these rules, omit the block. Put one choice per line. Do not mention this block or include it in intermediate tool-call messages.";
 
 function extractAnswerChoices(content: string) {
   const match = content.match(
