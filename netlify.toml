@@ -1,0 +1,9 @@
+# The Next.js app lives in the teller-ai/ subdirectory, not the repo root.
+# Paths below (publish) are relative to the base directory.
+[build]
+  base = "teller-ai"
+  command = "[ -x node_modules/.bin/next ] || npm ci --include=dev; npm run build"
+  publish = ".next"
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
