@@ -5,3 +5,16 @@
 
 [[plugins]]
   package = "@netlify/plugin-nextjs"
+
+# Force HTTPS: Auth0 sign-in only works on a secure origin.
+[[redirects]]
+  from = "http://silver-donut-340898.netlify.app/*"
+  to = "https://silver-donut-340898.netlify.app/:splat"
+  status = 301
+  force = true
+
+[[redirects]]
+  from = "http://teller-v12--silver-donut-340898.netlify.app/*"
+  to = "https://teller-v12--silver-donut-340898.netlify.app/:splat"
+  status = 301
+  force = true
