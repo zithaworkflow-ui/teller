@@ -2,5 +2,14 @@
   command = "npm run build"
   publish = ".next"
 
+[build.environment]
+  # Non-sensitive configuration values that are short/common strings (e.g. an
+  # environment name or token limit) and therefore show up inside Next.js's own
+  # compiled files, causing false positives in secrets scanning. Real secrets
+  # (API keys, client secrets, database URLs) remain scanned.
+  SECRETS_SCAN_OMIT_KEYS = "PAYPAL_ENVIRONMENT,AI_MAX_TOKENS,TRANSCRIPTION_MAX_TOKENS,PAYPAL_ZAR_TO_USD_RATE,NEXT_PUBLIC_APP_URL,NEXT_PUBLIC_AUTH0_DOMAIN,NEXT_PUBLIC_AUTH0_CLIENT_ID,NEXT_PUBLIC_AUTH0_AUDIENCE,NEXT_PUBLIC_AUTH0_CALLBACK_URL,NEXT_PUBLIC_STRIPE_PRO_PRICE_ID,NEXT_PUBLIC_GOOGLE_MAPS_EMBED_API_KEY,GOOGLE_OAUTH_CLIENT_ID,GOOGLE_OAUTH_REDIRECT_URI,IMAGE_GENERATION_MODEL,NVIDIA_CHAT_MODEL,NVIDIA_MODEL,NVIDIA_API_BASE_URL,NVIDIA_TTS_API_URL,NVIDIA_TTS_VOICE_PROMPT_PATH,GMAIL_MCP_SERVER_URL,CAP_SERVER_URL"
+  # Build cache files are never deployed.
+  SECRETS_SCAN_OMIT_PATHS = ".next/cache/**,.netlify/.next/cache/**"
+
 [[plugins]]
   package = "@netlify/plugin-nextjs"
