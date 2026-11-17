@@ -5,3 +5,17 @@
 
 [[plugins]]
   package = "@netlify/plugin-nextjs"
+
+# Always serve the app over HTTPS. Auth0's SPA SDK refuses to run on
+# insecure (http://) origins, which made the page error out over plain HTTP.
+[[redirects]]
+  from = "http://teller.co.za/*"
+  to = "https://teller.co.za/:splat"
+  status = 301
+  force = true
+
+[[redirects]]
+  from = "http://www.teller.co.za/*"
+  to = "https://teller.co.za/:splat"
+  status = 301
+  force = true

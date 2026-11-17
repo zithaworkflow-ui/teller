@@ -113,6 +113,19 @@ export function AppAuthProvider({ children }: { children: ReactNode }) {
     );
   }
 
+  // Auth0's SPA SDK throws on insecure origins (plain http://), which crashes
+  // the whole page. Upgrade to HTTPS before the SDK is initialised.
+  if (
+    typeof window !== "undefined" &&
+    window.location.protocol === "http:" &&
+    !window.isSecureContext
+  ) {
+    window.location.replace(
+      `https://${window.location.host}${window.location.pathname}${window.location.search}${window.location.hash}`,
+    );
+    return null;
+  }
+
   const redirectUri =
     configuredCallbackUrl ||
     (typeof window !== "undefined"
