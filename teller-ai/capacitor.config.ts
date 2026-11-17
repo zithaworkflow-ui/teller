@@ -5,7 +5,7 @@ const serverUrl = process.env.CAP_SERVER_URL;
 const config: CapacitorConfig = {
   appId: "com.teller.ai",
   appName: "Teller AI",
-  webDir: "public",
+  webDir: "capacitor-web",
   ...(serverUrl
     ? {
         server: {
