@@ -34,6 +34,15 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
+      <head>
+        {/* Auth0 requires a secure origin; upgrade plain-HTTP visits (except localhost) to HTTPS. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              'if(location.protocol==="http:"&&!/^(localhost|127\\.0\\.0\\.1|\\[::1\\])$/.test(location.hostname)){location.replace("https://"+location.host+location.pathname+location.search+location.hash)}',
+          }}
+        />
+      </head>
       <body className="min-h-full flex flex-col">
         <AppAuthProvider>{children}</AppAuthProvider>
       </body>
