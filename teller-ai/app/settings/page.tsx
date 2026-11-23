@@ -1,7 +1,7 @@
 "use client";
 
 import { useAppAuth } from "@/components/Auth0Provider";
-import { LoaderCircle, Upload } from "lucide-react";
+import { CalendarDays, Check, LoaderCircle, Mail, Upload } from "lucide-react";
 import { useEffect, useState, type ChangeEvent, type FormEvent } from "react";
 import PayPalUpgradeButton from "@/components/PayPalUpgradeButton";
 import { COUNTRY_OPTIONS, PHONE_CODE_OPTIONS, countryFlag, splitInternationalPhone } from "@/lib/country-options";
@@ -14,6 +14,12 @@ type UserMemory = {
   id: string;
   memory: string;
   createdAt: string;
+};
+
+type GoogleConnectionStatus = {
+  configured: boolean;
+  connected: boolean;
+  email: string | null;
 };
 
 export default function AccountSettingsPage() {
@@ -50,6 +56,11 @@ export default function AccountSettingsPage() {
   const [memoryMessage, setMemoryMessage] = useState("");
   const [isLoadingMemories, setIsLoadingMemories] = useState(true);
   const [isSavingMemory, setIsSavingMemory] = useState(false);
+  const [googleConnection, setGoogleConnection] = useState<GoogleConnectionStatus | null>(null);
+  const [isLoadingGoogleConnection, setIsLoadingGoogleConnection] = useState(true);
+  const [isGoogleConnectionBusy, setIsGoogleConnectionBusy] = useState(false);
+  const [googleConnectionMessage, setGoogleConnectionMessage] = useState("");
+  const [googleConnectionError, setGoogleConnectionError] = useState("");
 
   const accountProfile = {
     name: [firstName, surname].filter(Boolean).join(" ") || user?.name || "Teller User",
@@ -203,6 +214,81 @@ export default function AccountSettingsPage() {
     };
   }, [getAccessTokenSilently, isAuthenticated, isLoading]);
 
+  useEffect(() => {
+    if (isLoading) return;
+    if (!isAuthenticated) {
+      setGoogleConnection(null);
+      setIsLoadingGoogleConnection(false);
+      return;
+    }
+
+    let active = true;
+    const loadGoogleConnection = async () => {
+      setIsLoadingGoogleConnection(true);
+      try {
+        const token = await getAccessTokenSilently();
+        const response = await fetch(`/api/google/connect?t=${Date.now()}`, {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: "no-store",
+        });
+        const result: unknown = await response.json();
+        if (!response.ok) {
+          const message = result && typeof result === "object" && "error" in result && typeof result.error === "string"
+            ? result.error
+            : "Could not load Google connection status.";
+          throw new Error(message);
+        }
+        if (
+          !result ||
+          typeof result !== "object" ||
+          !("configured" in result) ||
+          typeof result.configured !== "boolean" ||
+          !("connected" in result) ||
+          typeof result.connected !== "boolean" ||
+          !("email" in result) ||
+          (result.email !== null && typeof result.email !== "string")
+        ) {
+          throw new Error("The Google connection status response was invalid.");
+        }
+        if (active) {
+          setGoogleConnection({
+            configured: result.configured,
+            connected: result.connected,
+            email: result.email,
+          });
+        }
+      } catch (error) {
+        if (active) setGoogleConnectionError(error instanceof Error ? error.message : "Could not load Google connection status.");
+      } finally {
+        if (active) setIsLoadingGoogleConnection(false);
+      }
+    };
+
+    void loadGoogleConnection().then(() => {
+      if (!active) return;
+      const params = new URLSearchParams(window.location.search);
+      const googleResult = params.get("google");
+      if (googleResult === "connected") {
+        setGoogleConnectionError("");
+        setGoogleConnectionMessage("Google account connected.");
+      }
+      if (googleResult === "error") {
+        setGoogleConnectionMessage("");
+        setGoogleConnectionError("Google account connection did not complete. Try again.");
+      }
+      if (googleResult) {
+        params.delete("google");
+        params.delete("reason");
+        const query = params.toString();
+        window.history.replaceState({}, document.title, `${window.location.pathname}${query ? `?${query}` : ""}`);
+      }
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [getAccessTokenSilently, isAuthenticated, isLoading]);
+
   async function saveProfile() {
     setIsSavingProfile(true);
     setProfileMessage("");
@@ -347,6 +433,62 @@ export default function AccountSettingsPage() {
     );
     setSaveMessage("Settings saved");
     window.setTimeout(() => setSaveMessage(""), 2500);
+  }
+
+  async function connectGoogleAccount() {
+    setIsGoogleConnectionBusy(true);
+    setGoogleConnectionError("");
+    setGoogleConnectionMessage("");
+    try {
+      const token = await getAccessTokenSilently();
+      const response = await fetch("/api/google/connect?returnTo=settings", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const result: unknown = await response.json();
+      if (
+        !response.ok ||
+        !result ||
+        typeof result !== "object" ||
+        !("authorizationUrl" in result) ||
+        typeof result.authorizationUrl !== "string"
+      ) {
+        const message = result && typeof result === "object" && "error" in result && typeof result.error === "string"
+          ? result.error
+          : "Could not start Google account connection.";
+        throw new Error(message);
+      }
+      window.location.assign(result.authorizationUrl);
+    } catch (error) {
+      setGoogleConnectionError(error instanceof Error ? error.message : "Could not start Google account connection.");
+      setIsGoogleConnectionBusy(false);
+    }
+  }
+
+  async function disconnectGoogleAccount() {
+    setIsGoogleConnectionBusy(true);
+    setGoogleConnectionError("");
+    setGoogleConnectionMessage("");
+    try {
+      const token = await getAccessTokenSilently();
+      const response = await fetch("/api/google/connect", {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const result: unknown = await response.json();
+      if (!response.ok) {
+        const message = result && typeof result === "object" && "error" in result && typeof result.error === "string"
+          ? result.error
+          : "Could not disconnect the Google account.";
+        throw new Error(message);
+      }
+      setGoogleConnection((current) => current ? { ...current, connected: false, email: null } : current);
+      setGoogleConnectionMessage("Google account disconnected.");
+    } catch (error) {
+      setGoogleConnectionError(error instanceof Error ? error.message : "Could not disconnect the Google account.");
+    } finally {
+      setIsGoogleConnectionBusy(false);
+    }
   }
 
   if (isLoading) {
@@ -496,6 +638,72 @@ export default function AccountSettingsPage() {
                 </button>
               </div>
             )}
+          </section>
+
+          <section className="rounded-xl border border-neutral-800 bg-neutral-950 p-5">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <h2 className="text-lg font-semibold">CyberMail Google account</h2>
+                <p className="mt-2 max-w-2xl text-sm text-neutral-400">
+                  Connect Gmail and Google Calendar to search messages, review your calendar, create drafts, and add events. Drafts and events require your confirmation; CyberMail does not send email.
+                </p>
+                <div className="mt-3 flex flex-wrap gap-3 text-xs text-neutral-400">
+                  <span className="inline-flex items-center gap-1.5"><Mail size={14} aria-hidden="true" /> Gmail</span>
+                  <span className="inline-flex items-center gap-1.5"><CalendarDays size={14} aria-hidden="true" /> Google Calendar</span>
+                </div>
+              </div>
+              {isAuthenticated ? (
+                isLoadingGoogleConnection ? (
+                  <span className="inline-flex items-center gap-2 text-sm text-neutral-400" role="status">
+                    <LoaderCircle size={16} className="animate-spin" aria-hidden="true" />
+                    Checking connection...
+                  </span>
+                ) : googleConnection?.connected ? (
+                  <button
+                    type="button"
+                    onClick={() => void disconnectGoogleAccount()}
+                    disabled={isGoogleConnectionBusy}
+                    className="rounded-lg border border-neutral-700 px-3 py-2 text-sm text-neutral-200 hover:bg-neutral-800 disabled:opacity-50"
+                  >
+                    {isGoogleConnectionBusy ? "Disconnecting..." : "Disconnect Google"}
+                  </button>
+                ) : googleConnection?.configured ? (
+                  <button
+                    type="button"
+                    onClick={() => void connectGoogleAccount()}
+                    disabled={isGoogleConnectionBusy}
+                    className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-neutral-950 hover:bg-neutral-200 disabled:opacity-50"
+                  >
+                    {isGoogleConnectionBusy ? "Connecting..." : "Connect Google"}
+                  </button>
+                ) : (
+                  <span className="rounded-lg border border-amber-500/30 px-3 py-2 text-xs text-amber-200">
+                    Server setup required
+                  </span>
+                )
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => loginWithRedirect({ appState: { returnTo: "/settings" } })}
+                  className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-neutral-950 hover:bg-neutral-200"
+                >
+                  Log in to connect
+                </button>
+              )}
+            </div>
+            {googleConnection?.connected && (
+              <p className="mt-3 inline-flex items-center gap-2 text-sm text-emerald-300">
+                <Check size={16} aria-hidden="true" />
+                Connected as {googleConnection.email}
+              </p>
+            )}
+            {isAuthenticated && googleConnection && !googleConnection.configured && (
+              <p className="mt-3 text-xs leading-5 text-neutral-400">
+                The site administrator must configure the server-side Google OAuth client and token encryption key before accounts can connect.
+              </p>
+            )}
+            {googleConnectionMessage && <p className="mt-3 text-sm text-emerald-400" role="status">{googleConnectionMessage}</p>}
+            {googleConnectionError && <p className="mt-3 text-sm text-rose-300" role="alert">{googleConnectionError}</p>}
           </section>
 
           {isAuthenticated && (

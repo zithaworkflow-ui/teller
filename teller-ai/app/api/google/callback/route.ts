@@ -5,7 +5,7 @@ import { consumeGoogleOAuthState } from "@/lib/postgres";
 export const runtime = "nodejs";
 
 export async function GET(request: Request) {
-  const callbackUrl = new URL("/chat?agent=cyber", request.url);
+  let callbackUrl = new URL("/chat?agent=cyber", request.url);
   const params = new URL(request.url).searchParams;
   const state = params.get("state");
   const code = params.get("code");
@@ -16,13 +16,14 @@ export async function GET(request: Request) {
   }
 
   try {
-    const userId = await consumeGoogleOAuthState(hashGoogleOAuthState(state));
-    if (!userId || !code || params.has("error")) {
+    const oauthState = await consumeGoogleOAuthState(hashGoogleOAuthState(state));
+    if (oauthState) callbackUrl = new URL(oauthState.returnTo, request.url);
+    if (!oauthState || !code || params.has("error")) {
       callbackUrl.searchParams.set("google", "error");
       callbackUrl.searchParams.set("reason", params.has("error") ? "consent-denied" : "expired-state");
       return NextResponse.redirect(callbackUrl);
     }
-    await completeGoogleAuthorization(code, userId);
+    await completeGoogleAuthorization(code, oauthState.userId);
     callbackUrl.searchParams.set("google", "connected");
     return NextResponse.redirect(callbackUrl);
   } catch (error) {

@@ -38,7 +38,10 @@ export async function POST(request: Request) {
 
   try {
     const state = createGoogleOAuthState();
-    await saveGoogleOAuthState(hashGoogleOAuthState(state), userId);
+    const returnTo = new URL(request.url).searchParams.get("returnTo") === "settings"
+      ? "/settings"
+      : "/chat?agent=cyber";
+    await saveGoogleOAuthState(hashGoogleOAuthState(state), userId, returnTo);
     return NextResponse.json({ authorizationUrl: createGoogleAuthorizationUrl(state) });
   } catch (error) {
     console.error("Google connect setup error:", error);

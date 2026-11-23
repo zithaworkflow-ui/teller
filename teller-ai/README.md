@@ -59,6 +59,8 @@ To enable the Google connection:
    - `GMAIL_MCP_SERVER_URL` is optional and defaults to `https://gmailmcp.googleapis.com/mcp/v1`.
 5. Ensure `DATABASE_URL` and, if using a separate CyberMail database, `CYBERMAIL_DATABASE_URL` are configured. OAuth tokens are encrypted before being stored in Postgres. If you switch to a new CyberMail database, reconnect the Google account there. Do not put database credentials or Google credentials in `NEXT_PUBLIC_*` variables or commit them.
 
+After the server is configured, sign in to Teller, open **Account Settings**, and choose **Connect Google**. Users can connect or disconnect their own Google account there. The standalone `gmail_teller.py` script and its `credentials.json` file are not used by the Next.js app; CyberMail uses the Web application OAuth client configured with the server-side environment variables above.
+
 Google may require OAuth app verification before external users can grant sensitive Gmail and Calendar scopes. While the consent screen is in testing mode, add the intended accounts as test users.
 
 CyberMail treats retrieved email and calendar content as untrusted input. Users should still review draft/event details before confirming. For Google's Gmail MCP setup and security guidance, see [Configure the Gmail MCP server](https://developers.google.com/workspace/gmail/api/guides/configure-mcp-server).

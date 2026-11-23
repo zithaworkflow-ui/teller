@@ -159,6 +159,7 @@ async function ensureSchema() {
         CREATE TABLE IF NOT EXISTS teller_google_oauth_states (
           state_hash TEXT PRIMARY KEY,
           user_id TEXT NOT NULL,
+          return_to TEXT NOT NULL DEFAULT '/chat?agent=cyber',
           expires_at TIMESTAMPTZ NOT NULL
         )
       `);
@@ -189,8 +190,13 @@ async function ensureCyberAgentSchema() {
         CREATE TABLE IF NOT EXISTS teller_google_oauth_states (
           state_hash TEXT PRIMARY KEY,
           user_id TEXT NOT NULL,
+          return_to TEXT NOT NULL DEFAULT '/chat?agent=cyber',
           expires_at TIMESTAMPTZ NOT NULL
         )
+      `);
+      await getCyberAgentPool().query(`
+        ALTER TABLE teller_google_oauth_states
+        ADD COLUMN IF NOT EXISTS return_to TEXT NOT NULL DEFAULT '/chat?agent=cyber'
       `);
       await getCyberAgentPool().query(`
         CREATE TABLE IF NOT EXISTS teller_google_pending_actions (
@@ -208,21 +214,26 @@ async function ensureCyberAgentSchema() {
   await globalForPostgres.tellerCyberAgentPostgresSchema;
 }
 
-export async function saveGoogleOAuthState(stateHash: string, userId: string) {
+export async function saveGoogleOAuthState(
+  stateHash: string,
+  userId: string,
+  returnTo: "/settings" | "/chat?agent=cyber" = "/chat?agent=cyber",
+) {
   await ensureCyberAgentSchema();
   await getCyberAgentPool().query(
-    "INSERT INTO teller_google_oauth_states (state_hash, user_id, expires_at) VALUES ($1, $2, NOW() + INTERVAL '10 minutes')",
-    [stateHash, userId],
+    "INSERT INTO teller_google_oauth_states (state_hash, user_id, return_to, expires_at) VALUES ($1, $2, $3, NOW() + INTERVAL '10 minutes')",
+    [stateHash, userId, returnTo],
   );
 }
 
 export async function consumeGoogleOAuthState(stateHash: string) {
   await ensureCyberAgentSchema();
-  const result = await getCyberAgentPool().query<{ user_id: string }>(
-    "DELETE FROM teller_google_oauth_states WHERE state_hash = $1 AND expires_at > NOW() RETURNING user_id",
+  const result = await getCyberAgentPool().query<{ user_id: string; return_to: string }>(
+    "DELETE FROM teller_google_oauth_states WHERE state_hash = $1 AND expires_at > NOW() RETURNING user_id, return_to",
     [stateHash],
   );
-  return result.rows[0]?.user_id ?? null;
+  const row = result.rows[0];
+  return row ? { userId: row.user_id, returnTo: row.return_to } : null;
 }
 
 export async function saveGoogleConnection(
