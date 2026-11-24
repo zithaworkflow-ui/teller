@@ -222,6 +222,16 @@ function isImageGenerationPrompt(prompt: string) {
     /\b(?:make|create|generate|draw|design|show|of|for|with|turn)\b/i.test(prompt);
 }
 
+function isExplicitImageGenerationRequest(prompt: string) {
+  const asksForPrompt = /\b(?:write|draft|compose|improve|refine|suggest)\b[\s\S]{0,60}\bprompt\b/i.test(prompt) ||
+    /\b(?:create|generate)\s+(?:me\s+)?(?:an?\s+)?prompt\b/i.test(prompt);
+  const asksHowTo = /\b(?:how to|how do i|how can i)\b/i.test(prompt);
+  return !asksForPrompt &&
+    !asksHowTo &&
+    /\b(?:create|generate|draw|design|make|produce|render)\b/i.test(prompt) &&
+    /\b(?:image|picture|photo|photograph|artwork|illustration|drawing|painting)\b/i.test(prompt);
+}
+
 function extractVisualDetails(content: string) {
   const marker = /\bvisual details of (?:the )?image\s*:\s*/i;
   const match = marker.exec(content);
@@ -1041,6 +1051,7 @@ export default function ChatWindow() {
       const shouldCreateImageVariation = Boolean(
         previousGeneratedImage && isImageVariationPrompt(userMessage.content),
       );
+      const explicitImageIntent = isExplicitImageGenerationRequest(userMessage.content);
       let classifiedImageIntent = false;
       let imageIntentClassificationFailed = false;
       const useImageIntentHeuristic = (
@@ -1048,7 +1059,11 @@ export default function ChatWindow() {
         activeAgent !== "teller" ||
         userMessage.content.length > 4000
       );
-      if (activeAgent === "teller" && isAuthenticated && userMessage.content.length <= 4000 && (!pendingFile || hasImageUpload)) {
+      if (!explicitImageIntent &&
+        activeAgent === "teller" &&
+        isAuthenticated &&
+        userMessage.content.length <= 4000 &&
+        (!pendingFile || hasImageUpload)) {
         const token = await getAccessTokenSilently();
         let classificationResponse: Response | null = null;
         try {
@@ -1106,13 +1121,16 @@ export default function ChatWindow() {
         (previousVisualDirection && isImageGenerationPrompt(userMessage.content)),
       );
       const shouldGenerateImage = hasImageUpload
-        ? !imageIntentClassificationFailed &&
-          (classifiedImageIntent || isImageModificationPrompt(userMessage.content))
+        ? explicitImageIntent ||
+          (!imageIntentClassificationFailed &&
+            (classifiedImageIntent || isImageModificationPrompt(userMessage.content)))
         : !pendingFile && (
-            !imageIntentClassificationFailed &&
-            (classifiedImageIntent ||
-              localImageIntent ||
-              (useImageIntentHeuristic && isImageGenerationPrompt(userMessage.content)))
+            explicitImageIntent ||
+            (!imageIntentClassificationFailed &&
+              (classifiedImageIntent ||
+                localImageIntent ||
+                (useImageIntentHeuristic && isImageGenerationPrompt(userMessage.content)))
+            )
           );
 
       if (shouldGenerateImage) {
@@ -1200,7 +1218,7 @@ export default function ChatWindow() {
         },
         body: JSON.stringify({
           agent: activeAgent,
-          clarifyImageIntent: imageIntentClassificationFailed,
+          clarifyImageIntent: imageIntentClassificationFailed && !explicitImageIntent,
           messages: updatedMessages.map((msg, index) => {
             const isCurrentImage = msg === userMessage && msg.file?.type.startsWith("image/");
             if (msg.file) {
