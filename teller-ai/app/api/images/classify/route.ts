@@ -1,16 +1,10 @@
 import { NextResponse } from "next/server";
-import { getAuthenticatedUserId } from "@/lib/auth0-auth";
 import { classifyImageGenerationIntent } from "@/lib/image-intent";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
   try {
-    const userId = await getAuthenticatedUserId(request);
-    if (!userId) {
-      return NextResponse.json({ error: "Log in to classify image requests." }, { status: 401 });
-    }
-
     const body = await request.json();
     const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
     if (!prompt || prompt.length > 4000) {
