@@ -38,7 +38,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Sign in to use voice input." }, { status: 401 });
   }
 
-  if (!process.env.NVIDIA_API_KEY && !process.env.AI_API_KEY) {
+  if (!process.env.NVIDIA_API_KEY) {
     return NextResponse.json({ error: "Voice transcription is not configured." }, { status: 503 });
   }
   const nvidiaConfig = getNvidiaAIConfig();

@@ -1,4 +1,4 @@
-import { callRoutedChatCompletion } from "@/lib/ai-router";
+import { callNvidiaModelCompletion } from "@/lib/nvidia-chat";
 
 type ChatCompletionResponse = {
   choices?: Array<{
@@ -12,7 +12,7 @@ export async function classifyImageGenerationIntent(
   prompt: string,
   hasReferenceImage: boolean,
 ) {
-  const response = await callRoutedChatCompletion<ChatCompletionResponse>({
+  const response = await callNvidiaModelCompletion<ChatCompletionResponse>({
     messages: [
       {
         role: "system",

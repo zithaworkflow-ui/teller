@@ -7,7 +7,7 @@ import {
   incrementUserUsage,
 } from "@/lib/postgres";
 import { LOCAL_TEST_USER_ID } from "@/lib/local-test-auth";
-import { callRoutedChatCompletion } from "@/lib/ai-router";
+import { callNvidiaChatCompletion } from "@/lib/nvidia-chat";
 import {
   formatUserMemoryPrompt,
   getExplicitMemoryRequest,
@@ -44,7 +44,7 @@ function parseArguments(raw: string): Record<string, unknown> {
 }
 
 async function completeWithTools(messages: Array<Record<string, unknown>>, tools: unknown[]) {
-  const payload: unknown = await callRoutedChatCompletion({
+  const payload: unknown = await callNvidiaChatCompletion({
       max_tokens: 2048,
       messages,
       tools,

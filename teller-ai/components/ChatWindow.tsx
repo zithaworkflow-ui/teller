@@ -1042,6 +1042,7 @@ export default function ChatWindow() {
         previousGeneratedImage && isImageVariationPrompt(userMessage.content),
       );
       let classifiedImageIntent = false;
+      let imageIntentClassificationFailed = false;
       const useImageIntentHeuristic = (
         !isAuthenticated ||
         activeAgent !== "teller" ||
@@ -1049,25 +1050,54 @@ export default function ChatWindow() {
       );
       if (activeAgent === "teller" && isAuthenticated && userMessage.content.length <= 4000 && (!pendingFile || hasImageUpload)) {
         const token = await getAccessTokenSilently();
-        const classificationResponse = await fetch("/api/images/classify", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            prompt: userMessage.content,
-            hasReferenceImage: Boolean(hasImageUpload || previousGeneratedImage),
-          }),
-        });
-        const classificationData = await classificationResponse.json();
-        if (!classificationResponse.ok) {
-          throw new Error(classificationData.error || "Could not classify this request.");
+        let classificationResponse: Response | null = null;
+        try {
+          classificationResponse = await fetch("/api/images/classify", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              prompt: userMessage.content,
+              hasReferenceImage: Boolean(hasImageUpload || previousGeneratedImage),
+            }),
+          });
+        } catch (error) {
+          if (!(error instanceof TypeError)) throw error;
+          imageIntentClassificationFailed = true;
         }
-        if (typeof classificationData.isImageGenerationIntent !== "boolean") {
-          throw new Error("The image-intent classifier returned an invalid response.");
+
+        if (classificationResponse) {
+          const classificationData: unknown = await classificationResponse.json().catch(() => null);
+          if (!classificationResponse.ok) {
+            const code = classificationData &&
+              typeof classificationData === "object" &&
+              "code" in classificationData
+              ? classificationData.code
+              : null;
+            if (classificationResponse.status === 502 && code === "IMAGE_INTENT_CLASSIFICATION_FAILED") {
+              imageIntentClassificationFailed = true;
+            } else {
+              const error = classificationData &&
+                typeof classificationData === "object" &&
+                "error" in classificationData &&
+                typeof classificationData.error === "string"
+                ? classificationData.error
+                : "Could not classify this request.";
+              throw new Error(error);
+            }
+          } else if (
+            classificationData &&
+            typeof classificationData === "object" &&
+            "isImageGenerationIntent" in classificationData &&
+            typeof classificationData.isImageGenerationIntent === "boolean"
+          ) {
+            classifiedImageIntent = classificationData.isImageGenerationIntent;
+          } else {
+            imageIntentClassificationFailed = true;
+          }
         }
-        classifiedImageIntent = classificationData.isImageGenerationIntent;
       }
       const localImageIntent = Boolean(
         currentVisualDirection ||
@@ -1076,11 +1106,13 @@ export default function ChatWindow() {
         (previousVisualDirection && isImageGenerationPrompt(userMessage.content)),
       );
       const shouldGenerateImage = hasImageUpload
-        ? classifiedImageIntent || isImageModificationPrompt(userMessage.content)
+        ? !imageIntentClassificationFailed &&
+          (classifiedImageIntent || isImageModificationPrompt(userMessage.content))
         : !pendingFile && (
-            classifiedImageIntent ||
-            localImageIntent ||
-            (useImageIntentHeuristic && isImageGenerationPrompt(userMessage.content))
+            !imageIntentClassificationFailed &&
+            (classifiedImageIntent ||
+              localImageIntent ||
+              (useImageIntentHeuristic && isImageGenerationPrompt(userMessage.content)))
           );
 
       if (shouldGenerateImage) {
@@ -1168,6 +1200,7 @@ export default function ChatWindow() {
         },
         body: JSON.stringify({
           agent: activeAgent,
+          clarifyImageIntent: imageIntentClassificationFailed,
           messages: updatedMessages.map((msg, index) => {
             const isCurrentImage = msg === userMessage && msg.file?.type.startsWith("image/");
             if (msg.file) {
@@ -1779,7 +1812,7 @@ export default function ChatWindow() {
       {isSidebarOpen && <div className="fixed inset-0 z-30 bg-black/50 md:hidden" onClick={() => setIsSidebarOpen(false)} aria-hidden />}
 
       <main className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 shrink-0 border-b border-neutral-800 bg-neutral-950/95 p-4 backdrop-blur-md">
+        <header className="sticky top-0 z-30 shrink-0 border-b border-neutral-800 bg-neutral-900 p-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <button className="flex h-10 w-10 items-center justify-center rounded-md bg-neutral-800 text-neutral-300 transition hover:bg-neutral-700 hover:text-white md:hidden" onClick={() => setIsSidebarOpen((s) => !s)} aria-label="Open chat sidebar" title="Open chat sidebar">
@@ -1811,7 +1844,7 @@ export default function ChatWindow() {
               {hasSession && planName === "Free" && (
                 <PayPalUpgradeButton
                   plan="pro-monthly"
-                  className="rounded-md bg-orange-500 px-3 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-orange-400"
+                  className="rounded-md bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-500"
                 >
                   Upgrade
                 </PayPalUpgradeButton>

@@ -31,7 +31,10 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error("Image-intent classification error:", error);
     return NextResponse.json(
-      { error: "Could not classify this request. Please try again." },
+      {
+        error: "Could not classify this request.",
+        code: "IMAGE_INTENT_CLASSIFICATION_FAILED",
+      },
       { status: 502 },
     );
   }

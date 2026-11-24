@@ -1,4 +1,4 @@
-import { callRoutedChatCompletion } from "@/lib/ai-router";
+import { callNvidiaChatCompletion } from "@/lib/nvidia-chat";
 import { formatUserMemoryPrompt } from "@/lib/user-memory";
 
 export const TELLER_AI_SYSTEM_PROMPT = `
@@ -123,7 +123,7 @@ async function callTellerAICompletion(
   const compactPrompt = options?.compactPrompt ?? false;
   const preparedMessages = prepareMessages(messages, compactPrompt);
   const userMemoryPrompt = formatUserMemoryPrompt(options?.userMemory || []);
-  const data = await callRoutedChatCompletion<{
+  const data = await callNvidiaChatCompletion<{
     choices?: { message?: TellerAIMessage }[];
   }>({
       max_tokens: getMaxTokens(options?.maxTokens),

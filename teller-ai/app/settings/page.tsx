@@ -781,8 +781,8 @@ export default function AccountSettingsPage() {
               <h2 className="text-lg font-semibold">Shared AI voice sample</h2>
               <p className="mt-2 text-sm text-neutral-400">
                 {canManageVoiceSample
-                  ? "This sample is used for NVIDIA and OpenRouter speech generation across all accounts. Upload a browser-supported audio recording of at least 3 seconds. The first 10 seconds are automatically cut and converted to mono, 16-bit PCM WAV at 22.05 kHz. Uploading replaces the shared sample."
-                  : `This sample is used for NVIDIA and OpenRouter speech generation across all accounts and is managed by ${VOICE_PROMPT_MANAGER_EMAIL}.`}
+                  ? "This sample is used for NVIDIA speech generation across all accounts. Upload a browser-supported audio recording of at least 3 seconds. The first 10 seconds are automatically cut and converted to mono, 16-bit PCM WAV at 22.05 kHz. Uploading replaces the shared sample."
+                  : `This sample is used for NVIDIA speech generation across all accounts and is managed by ${VOICE_PROMPT_MANAGER_EMAIL}.`}
               </p>
               {canManageVoiceSample && <div className="mt-4 flex flex-wrap items-center gap-3">
                 <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-white px-4 py-2 text-sm font-medium text-black has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-60">

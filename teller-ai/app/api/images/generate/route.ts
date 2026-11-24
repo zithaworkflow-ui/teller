@@ -14,7 +14,7 @@ import {
   saveUserChatMedia,
   getUserAccountData,
 } from "@/lib/postgres";
-import { validateGeneratedImageWithNvidia } from "@/lib/openrouter-image";
+import { validateGeneratedImageWithNvidia } from "@/lib/nvidia-image";
 import { getPlanKey, plans } from "@/lib/plans";
 
 export const runtime = "nodejs";

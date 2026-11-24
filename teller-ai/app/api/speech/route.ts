@@ -2,7 +2,6 @@ import { readFile } from "node:fs/promises";
 import { NextResponse } from "next/server";
 import { getAuthenticatedUserId } from "@/lib/auth0-auth";
 import { getNvidiaAIConfig } from "@/lib/nvidia-ai";
-import { synthesizeWithOpenRouter } from "@/lib/openrouter-tts";
 import {
   getSharedVoicePrompt,
   seedSharedVoicePromptIfMissing,
@@ -198,11 +197,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Sign in to generate voice replies." }, { status: 401 });
     }
 
-    const nvidiaApiKey = process.env.NVIDIA_API_KEY || process.env.AI_API_KEY;
-    const openRouterApiKey = process.env.OPENROUTER_API_KEY?.trim();
-    if (!nvidiaApiKey && !openRouterApiKey) {
+    const nvidiaApiKey = process.env.NVIDIA_API_KEY;
+    if (!nvidiaApiKey) {
       return NextResponse.json(
-        { error: "Configure NVIDIA_API_KEY or OPENROUTER_API_KEY to enable voice generation." },
+        { error: "Configure NVIDIA_API_KEY to enable voice generation." },
         { status: 503 },
       );
     }
@@ -231,58 +229,36 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "This reply is too long to read aloud." }, { status: 413 });
     }
 
-    let nvidiaFailureMessage = "NVIDIA voice generation is not configured.";
     let nvidiaFailureStatus = 503;
-    if (nvidiaApiKey) {
-      try {
-        const prompt = await getSharedVoicePromptForSpeech();
-
-        const config = getNvidiaAIConfig();
-        const endpoint = process.env.NVIDIA_TTS_API_URL?.trim() || NVIDIA_TTS_DEFAULT_URL;
-        const audioParts: Buffer[] = [];
-        const segmentDurations: number[] = [];
-        nvidiaFailureStatus = 502;
-        for (const chunk of splitTextForSpeech(text)) {
-          const audioPart = await synthesizeSpeech(
-            chunk,
-            prompt.audio,
-            prompt.sampleRate,
-            config.apiKey,
-            endpoint,
-          );
-          audioParts.push(audioPart);
-          segmentDurations.push(getWavDuration(audioPart));
-        }
-
-        const audio = combineWavAudio(audioParts);
-        return createAudioResponse(audio, segmentDurations);
-      } catch (error) {
-        nvidiaFailureMessage = error instanceof Error
-          ? error.message
-          : "NVIDIA voice generation failed.";
-        console.error("NVIDIA speech generation failed; trying OpenRouter fallback:", error);
-      }
-    }
-
-    if (!openRouterApiKey) {
-      return NextResponse.json(
-        { error: nvidiaFailureMessage },
-        { status: nvidiaFailureStatus },
-      );
-    }
-
     try {
       const prompt = await getSharedVoicePromptForSpeech();
-      const audio = await synthesizeWithOpenRouter(text, openRouterApiKey, prompt.audio);
-      return createAudioResponse(audio, [getWavDuration(audio)]);
+      const config = getNvidiaAIConfig();
+      const endpoint = process.env.NVIDIA_TTS_API_URL?.trim() || NVIDIA_TTS_DEFAULT_URL;
+      const audioParts: Buffer[] = [];
+      const segmentDurations: number[] = [];
+      nvidiaFailureStatus = 502;
+      for (const chunk of splitTextForSpeech(text)) {
+        const audioPart = await synthesizeSpeech(
+          chunk,
+          prompt.audio,
+          prompt.sampleRate,
+          config.apiKey,
+          endpoint,
+        );
+        audioParts.push(audioPart);
+        segmentDurations.push(getWavDuration(audioPart));
+      }
+
+      const audio = combineWavAudio(audioParts);
+      return createAudioResponse(audio, segmentDurations);
     } catch (error) {
-      console.error("OpenRouter fallback failed:", error);
-      const openRouterFailureMessage = error instanceof Error
+      console.error("NVIDIA speech generation failed:", error);
+      const failureMessage = error instanceof Error
         ? error.message
-        : "OpenRouter voice generation failed.";
+        : "NVIDIA voice generation failed.";
       return NextResponse.json(
-        { error: `${nvidiaFailureMessage} OpenRouter fallback failed: ${openRouterFailureMessage}` },
-        { status: 502 },
+        { error: failureMessage },
+        { status: nvidiaFailureStatus },
       );
     }
   } catch (error) {

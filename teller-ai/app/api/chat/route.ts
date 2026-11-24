@@ -6,8 +6,8 @@ import {
   isPromptTokenLimitError,
   type TellerToolCall,
 } from "@/lib/ai";
-import { hasChatAIProvider } from "@/lib/ai-router";
-import { analyzeImageWithNvidia } from "@/lib/openrouter-image";
+import { hasNvidiaChatProvider } from "@/lib/nvidia-chat";
+import { analyzeImageWithNvidia } from "@/lib/nvidia-image";
 import { getAuthenticatedUserId } from "@/lib/auth0-auth";
 import {
   addUserMemory,
@@ -134,8 +134,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Add a question about the uploaded image." }, { status: 400 });
     }
     if (hasImage
-      ? !process.env.NVIDIA_API_KEY && !process.env.AI_API_KEY
-      : !hasChatAIProvider()) {
+      ? !process.env.NVIDIA_API_KEY
+      : !hasNvidiaChatProvider()) {
       return NextResponse.json(
         { error: hasImage
           ? "NVIDIA image analysis is not configured on the server."
@@ -171,7 +171,34 @@ export async function POST(req: Request) {
 
     let reply: string | null = null;
     let lastCreditError: unknown;
-    if (hasImage) {
+    if (body.clarifyImageIntent === true && !isMapsAgent) {
+      const clarificationMessages = messages.map((message: { role?: unknown; content?: unknown }) => ({
+        role: message.role === "assistant" ? "assistant" : "user",
+        content: typeof message.content === "string" ? message.content : "",
+      }));
+      let maxTokens: number | undefined;
+      for (let attempt = 0; attempt < 4; attempt += 1) {
+        try {
+          reply = await callTellerAI(clarificationMessages, {
+            country,
+            userMemory,
+            maxTokens,
+            systemPrompt: [
+              ANSWER_CHOICES_PROMPT,
+              "The image-intent classifier could not determine whether the user wants an image generated or edited, or a text response. Do not generate or edit an image and do not assume the user's intent. Briefly explain the ambiguity, ask one concise clarifying question, and provide two or three distinct, relevant clickable reply options in an <answer_choices> block. Write each option as a short response the user can send, not as a question.",
+            ].join(" "),
+          });
+          break;
+        } catch (error) {
+          const affordableTokens = getAffordableOutputTokens(error);
+          if (affordableTokens && (!maxTokens || affordableTokens < maxTokens)) {
+            maxTokens = affordableTokens;
+            continue;
+          }
+          throw error;
+        }
+      }
+    } else if (hasImage) {
       if (!imageDataUrl) {
         return NextResponse.json({ error: "The image could not be prepared for analysis." }, { status: 400 });
       }

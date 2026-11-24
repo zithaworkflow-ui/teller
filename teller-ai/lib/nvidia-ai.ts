@@ -5,7 +5,7 @@ export const NVIDIA_DEFAULT_MODEL =
 export const NVIDIA_DEFAULT_CHAT_MODEL = "nvidia/nemotron-3.5-bolt-e4b";
 
 export function getNvidiaAIConfig() {
-  const apiKey = process.env.NVIDIA_API_KEY || process.env.AI_API_KEY;
+  const apiKey = process.env.NVIDIA_API_KEY;
   if (!apiKey) {
     throw new Error("NVIDIA AI is not configured. Set NVIDIA_API_KEY on the server.");
   }
