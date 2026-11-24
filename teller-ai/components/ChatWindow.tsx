@@ -13,6 +13,8 @@ import {
   Mail,
   Mic,
   Paperclip,
+  PanelLeftClose,
+  PanelLeftOpen,
   Sparkles,
   Sun,
   Moon,
@@ -198,6 +200,12 @@ function getCurrentVoiceReplySegment(audio: HTMLAudioElement, segments: VoiceRep
   return segments[segments.length - 1]?.text || "";
 }
 
+function getVoiceContent(message: Message) {
+  return message.imageUrl && message.imageDescription
+    ? message.imageDescription
+    : message.content;
+}
+
 function getModeGreeting(agent: AgentMode) {
   if (agent === "cyber") {
     return "Hi, I’m CyberMail. Connect your Google account to search and summarize Gmail, review your calendar, create email drafts, and propose calendar events. I’ll ask before creating drafts or events.";
@@ -232,7 +240,7 @@ function isImageModificationPrompt(prompt: string) {
     /^\s*(?:(?:please|can you|could you|would you)\s+)*(?:make|create|generate|draw|design)\s+(?:it|this|the image|the photo|the picture|an? (?:new )?(?:image|photo|picture))\b/i.test(prompt) ||
     /\b(?:make|create|generate)\s+(?:it|this|the image|the photo|the picture|an? (?:new )?(?:image|photo|picture))\b/i.test(prompt) ||
     /^\s*(?:(?:please|can you|could you|would you)\s+)*(?:make|keep)\s+(?:it|this|that)\s+\w+/i.test(prompt) ||
-    /^\s*(?:(?:please|can you|could you|would you)\s+)*(?:make|change|turn)\s+(?:the|its|their)\s+(?:background|sky|lighting|colors?|colours?|clothing|outfit|subject|character|style|composition)\b/i.test(prompt) ||
+    /^\s*(?:(?:please|can you|could you|would you)\s+)*(?:make|change|turn)\s+(?:the|its|their)\s+(?:background|sky|lighting|colors?|colours?|clothing|outfit|subject|character|object|item|thing|element|style|composition)\b/i.test(prompt) ||
     /^\s*(?:(?:please|can you|could you|would you)\s+)*(?:make|create|generate)\s+(?:another|a different|a new version|a variation)\b/i.test(prompt);
 }
 
@@ -1036,14 +1044,46 @@ export default function ChatWindow() {
       const shouldCreateImageVariation = Boolean(
         previousGeneratedImage && isImageVariationPrompt(userMessage.content),
       );
+      let classifiedImageIntent = false;
+      const useImageIntentHeuristic = (
+        !isAuthenticated ||
+        activeAgent !== "teller" ||
+        userMessage.content.length > 4000
+      );
+      if (activeAgent === "teller" && isAuthenticated && userMessage.content.length <= 4000 && (!pendingFile || hasImageUpload)) {
+        const token = await getAccessTokenSilently();
+        const classificationResponse = await fetch("/api/images/classify", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            prompt: userMessage.content,
+            hasReferenceImage: Boolean(hasImageUpload || previousGeneratedImage),
+          }),
+        });
+        const classificationData = await classificationResponse.json();
+        if (!classificationResponse.ok) {
+          throw new Error(classificationData.error || "Could not classify this request.");
+        }
+        if (typeof classificationData.isImageGenerationIntent !== "boolean") {
+          throw new Error("The image-intent classifier returned an invalid response.");
+        }
+        classifiedImageIntent = classificationData.isImageGenerationIntent;
+      }
+      const localImageIntent = Boolean(
+        currentVisualDirection ||
+        shouldEditGeneratedImage ||
+        shouldCreateImageVariation ||
+        (previousVisualDirection && isImageGenerationPrompt(userMessage.content)),
+      );
       const shouldGenerateImage = hasImageUpload
-        ? isImageModificationPrompt(userMessage.content)
+        ? classifiedImageIntent || isImageModificationPrompt(userMessage.content)
         : !pendingFile && (
-            Boolean(currentVisualDirection) ||
-            isImageGenerationPrompt(userMessage.content) ||
-            Boolean(previousVisualDirection && isImageGenerationPrompt(userMessage.content)) ||
-            shouldEditGeneratedImage ||
-            shouldCreateImageVariation
+            classifiedImageIntent ||
+            localImageIntent ||
+            (useImageIntentHeuristic && isImageGenerationPrompt(userMessage.content))
           );
 
       if (shouldGenerateImage) {
@@ -1082,6 +1122,16 @@ export default function ChatWindow() {
             setDailyImageCount(imageData.imageGenerationCount);
           }
           throw new Error(imageData.error || "Image generation failed.");
+        }
+        if (
+          typeof imageData.imageUrl !== "string" ||
+          !/^data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/]+={0,2}$/.test(imageData.imageUrl) ||
+          typeof imageData.imageStoragePath !== "string" ||
+          !/^postgres:[0-9a-f-]{36}$/i.test(imageData.imageStoragePath) ||
+          typeof imageData.imageDescription !== "string" ||
+          !imageData.imageDescription.trim()
+        ) {
+          throw new Error("The generated image could not be verified. Please try again.");
         }
         if (Number.isInteger(imageData.imageGenerationCount)) {
           setDailyImageCount(imageData.imageGenerationCount);
@@ -1609,8 +1659,8 @@ export default function ChatWindow() {
           <div className="mb-4">
             <h1 className="relative mb-2 flex items-center justify-center text-2xl font-bold">
               <img src="/jupiter-black.svg" alt="Jupiter" className="h-20 w-20 object-contain" />
-              <button className="absolute right-0 rounded bg-neutral-800 px-2 py-1 text-sm md:hidden" onClick={() => setIsSidebarOpen(false)} aria-label="Close sidebar">
-                ✕
+              <button className="absolute right-0 flex h-9 w-9 items-center justify-center rounded-md bg-neutral-800 text-neutral-300 transition hover:bg-neutral-700 hover:text-white md:hidden" onClick={() => setIsSidebarOpen(false)} aria-label="Close sidebar" title="Close sidebar">
+                <PanelLeftClose size={18} aria-hidden="true" />
               </button>
             </h1>
 
@@ -1735,28 +1785,30 @@ export default function ChatWindow() {
         <header className="sticky top-0 z-30 shrink-0 border-b border-neutral-800 bg-neutral-950/95 p-4 backdrop-blur-md">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <button className="flex h-10 w-10 items-center justify-center rounded-md bg-neutral-800 transition hover:bg-neutral-700 md:hidden" onClick={() => setIsSidebarOpen((s) => !s)} aria-label="Open chat menu" title="Open chat menu">
-                <img src="/jupiter-black.svg" alt="" aria-hidden="true" className="h-7 w-7 object-contain" />
+              <button className="flex h-10 w-10 items-center justify-center rounded-md bg-neutral-800 text-neutral-300 transition hover:bg-neutral-700 hover:text-white md:hidden" onClick={() => setIsSidebarOpen((s) => !s)} aria-label="Open chat sidebar" title="Open chat sidebar">
+                <PanelLeftOpen size={20} aria-hidden="true" />
               </button>
-              <button className="hidden h-10 w-10 items-center justify-center rounded-md bg-neutral-800 transition hover:bg-neutral-700 md:inline-flex" onClick={() => setIsHistoryVisible((v) => !v)} aria-label="Toggle history visibility" title="Toggle chat history">
-                <img src="/jupiter-black.svg" alt="" aria-hidden="true" className="h-7 w-7 object-contain" />
+              <button className="hidden h-10 w-10 items-center justify-center rounded-md bg-neutral-800 text-neutral-300 transition hover:bg-neutral-700 hover:text-white md:inline-flex" onClick={() => setIsHistoryVisible((v) => !v)} aria-label={isHistoryVisible ? "Hide chat history" : "Show chat history"} title={isHistoryVisible ? "Hide chat history" : "Show chat history"}>
+                {isHistoryVisible ? <PanelLeftClose size={20} aria-hidden="true" /> : <PanelLeftOpen size={20} aria-hidden="true" />}
               </button>
-              {activeAgent === "cyber" ? (
-                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-500/15 text-violet-200">
-                  <Sparkles size={18} aria-hidden="true" />
-                </span>
-              ) : activeAgent === "maps" ? (
-                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-500/15 text-sky-200">
-                  <MapPinned size={18} aria-hidden="true" />
-                </span>
-              ) : (
-                <img src="/jupiter-black.svg" alt="Teller AI" className="h-8 w-8 object-contain" />
+              {activeAgent !== "teller" && (
+                <>
+                  {activeAgent === "cyber" ? (
+                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-500/15 text-violet-200">
+                      <Sparkles size={18} aria-hidden="true" />
+                    </span>
+                  ) : (
+                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-500/15 text-sky-200">
+                      <MapPinned size={18} aria-hidden="true" />
+                    </span>
+                  )}
+                  <div className="leading-tight">
+                    <div className="text-sm font-semibold">{activeAgent === "cyber" ? "CyberMail" : "CyberMaps"}</div>
+                    {activeAgent === "cyber" && <div className="text-xs text-neutral-400">Google Workspace assistant</div>}
+                    {activeAgent === "maps" && <div className="text-xs text-neutral-400">Directions & interactive maps</div>}
+                  </div>
+                </>
               )}
-              <div className="leading-tight">
-                <div className="text-sm font-semibold">{activeAgent === "cyber" ? "CyberMail" : activeAgent === "maps" ? "CyberMaps" : "Teller AI"}</div>
-                {activeAgent === "cyber" && <div className="text-xs text-neutral-400">Google Workspace assistant</div>}
-                {activeAgent === "maps" && <div className="text-xs text-neutral-400">Directions & interactive maps</div>}
-              </div>
             </div>
             <div className="flex items-center gap-2">
               {hasSession && planName === "Free" && (
@@ -2072,7 +2124,7 @@ export default function ChatWindow() {
                 )}
                 {voiceReplyPlayback?.index === index &&
                   voiceReplyPlayback.historyId === activeHistoryId &&
-                  voiceReplyPlayback.content === message.content && (
+                  voiceReplyPlayback.content === getVoiceContent(message) && (
                     <p className="mt-3 border-l-2 border-sky-400 pl-3 text-sm leading-6 text-sky-200" role="status" aria-live="polite">
                       <span className="mr-2 text-xs font-medium uppercase tracking-wide text-sky-400">Reading</span>
                       {voiceReplyPlayback.segment}
@@ -2084,7 +2136,7 @@ export default function ChatWindow() {
                       <button type="button" onClick={() => void copyText(message.content, index)} className="rounded px-1 text-xl leading-none text-neutral-300 hover:text-white" aria-label={copiedMessage === index ? "Copied" : "Copy message"} title={copiedMessage === index ? "Copied" : "Copy message"}>{copiedMessage === index ? "✓" : "⧉"}</button>
                       <button
                         type="button"
-                        onClick={() => void generateVoiceReply(message.content, index)}
+                        onClick={() => void generateVoiceReply(getVoiceContent(message), index)}
                         disabled={voiceReplyLoading === index}
                         className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-neutral-300 hover:bg-white/10 hover:text-white disabled:opacity-50"
                         aria-label={voiceReplyLoading === index ? "Generating voice" : "Listen to reply"}
@@ -2148,7 +2200,7 @@ export default function ChatWindow() {
                 </div>
                 {voiceReplyError?.index === index &&
                   voiceReplyError.historyId === activeHistoryId &&
-                  voiceReplyError.content === message.content && (
+                  voiceReplyError.content === getVoiceContent(message) && (
                   <p className="mt-2 text-xs text-rose-300" role="alert">{voiceReplyError.message}</p>
                 )}
               </div>

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import {
   generateImageWithCloudflare,
   isCloudflareImageGenerationConfigured,
+  prepareImageForAnalysis,
 } from "@/lib/cloudflare-image";
 import { MAX_IMAGE_BYTES, parseImageDataUrl } from "@/lib/image-input";
 import { getAuthenticatedUserId } from "@/lib/auth0-auth";
@@ -13,7 +14,7 @@ import {
   saveUserChatMedia,
   getUserAccountData,
 } from "@/lib/postgres";
-import { analyzeImageWithNvidia } from "@/lib/openrouter-image";
+import { validateGeneratedImageWithNvidia } from "@/lib/openrouter-image";
 import { getPlanKey, plans } from "@/lib/plans";
 
 export const runtime = "nodejs";
@@ -146,9 +147,14 @@ export async function POST(request: Request) {
     }
 
     const imageBytes = Buffer.from(dataUrl[2], "base64");
-    const imageDescription = await analyzeImageWithNvidia(
-      "Describe this generated image in one concise, factual sentence of about 15–30 words. Mention its main subject, setting, and notable visual style. Do not mention the image-generation process or speculate.",
+    const referenceBytes = parsedReference?.bytes || storedReference?.bytes;
+    const referenceImageDataUrl = referenceBytes
+      ? await prepareImageForAnalysis(referenceBytes)
+      : undefined;
+    const imageDescription = await validateGeneratedImageWithNvidia(
+      prompt,
       image.imageUrl,
+      referenceImageDataUrl,
     );
     const mediaId = await saveUserChatMedia(
       userId,
