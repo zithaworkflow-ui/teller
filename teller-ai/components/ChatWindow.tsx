@@ -150,6 +150,7 @@ type GeneratedImage = {
 
 type Theme = "auto" | "dark" | "light";
 type VoiceReplySegment = { text: string; duration: number };
+const TELLER_GREETING = "Hello! What can I do for you today?";
 
 type SpeechRecognitionResultLike = { 0: { transcript: string } };
 type SpeechRecognitionEventLike = { results: ArrayLike<SpeechRecognitionResultLike> };
@@ -213,7 +214,7 @@ function getModeGreeting(agent: AgentMode) {
   if (agent === "maps") {
     return "Hi, I’m CyberMaps. Ask me to find a place or get directions, for example “directions from Cape Town Station to Table Mountain by transit.” The live map will update alongside our chat.";
   }
-  return "Hi, I’m Teller AI. Ask me anything — I can help with research, writing, business, coding, summaries, and ideas.";
+  return TELLER_GREETING;
 }
 
 function isImageGenerationPrompt(prompt: string) {
@@ -415,8 +416,7 @@ export default function ChatWindow() {
   const [messages, setMessages] = useState<Message[]>([
     {
       role: "assistant",
-      content:
-        "Hi, I’m Teller AI. Ask me anything — I can help with research, writing, business, coding, summaries, and ideas.",
+      content: TELLER_GREETING,
     },
   ]);
 
@@ -598,16 +598,14 @@ export default function ChatWindow() {
       setMessages([
         {
           role: "assistant",
-          content:
-            "Hi, I’m Teller AI. Ask me anything — I can help with research, writing, business, coding, summaries, and ideas.",
+          content: TELLER_GREETING,
         },
       ]);
       if (!isAuthenticated) {
         const initialMessages: Message[] = [
           {
             role: "assistant",
-            content:
-              "Hi, I’m Teller AI. Ask me anything — I can help with research, writing, business, coding, summaries, and ideas.",
+            content: TELLER_GREETING,
           },
         ];
         const initial: HistoryItem = {
@@ -643,8 +641,7 @@ export default function ChatWindow() {
             const initialMessages: Message[] = [
               {
                 role: "assistant",
-                content:
-                  "Hi, I’m Teller AI. Ask me anything — I can help with research, writing, business, coding, summaries, and ideas.",
+                content: TELLER_GREETING,
               },
             ];
             const initial: HistoryItem = {
@@ -1653,7 +1650,7 @@ export default function ChatWindow() {
   ));
 
   return (
-    <div data-theme={theme} className="flex h-screen bg-neutral-950 text-white">
+    <div data-theme={theme} className="flex h-screen bg-neutral-900 text-white">
       <aside className={`fixed inset-y-0 left-0 z-40 w-72 transform border-r border-neutral-800 bg-neutral-900 p-4 transition-transform duration-200 md:static md:translate-x-0 ${isHistoryVisible ? 'md:block' : 'md:hidden'} ${isSidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"}`} aria-hidden={!isSidebarOpen && true}>
         <div className="flex h-full flex-col">
           <div className="mb-4">
@@ -2234,10 +2231,10 @@ export default function ChatWindow() {
           </div>
         </div>
 
-        <div className="sticky bottom-0 z-20 border-t border-neutral-800/70 bg-neutral-950/85 px-3 py-4 backdrop-blur-xl sm:px-6 sm:py-5">
+        <div className="sticky bottom-3 z-20 px-3 py-2 sm:px-6 sm:py-3">
           <div className="mx-auto max-w-3xl">
             {hasSession ? (
-              <div className="rounded-[2rem] border border-neutral-700/80 bg-neutral-900/95 p-2 shadow-[0_12px_40px_rgba(0,0,0,0.35)] transition-colors focus-within:border-neutral-500">
+              <div className="rounded-[2rem] border border-neutral-700/80 bg-neutral-900/95 p-2 shadow-[0_16px_48px_rgba(0,0,0,0.45)] backdrop-blur-2xl transition-colors focus-within:border-neutral-500">
                 {pendingFile && (
                   <div className="mb-1 flex min-w-0 items-center gap-2 px-3 pt-1 text-xs text-neutral-300">
                     <Paperclip size={14} aria-hidden="true" />
