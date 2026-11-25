@@ -588,6 +588,7 @@ export default function ChatWindow() {
   const [isStartingRecording, setIsStartingRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const loadingHistoryIdsRef = useRef(new Set<string>());
+  const titleGeneratedPromptCountsRef = useRef(new Map<string, number>());
   const [loadingHistoryIds, setLoadingHistoryIds] = useState<Set<string>>(() => new Set());
   const [researchSitesByHistory, setResearchSitesByHistory] = useState<Record<string, string[]>>({});
   const generatingImageHistoryIdsRef = useRef(new Set<string>());
@@ -1140,6 +1141,55 @@ export default function ChatWindow() {
     setGeneratingImageHistoryIds(next);
   }
 
+  async function generateConversationTitle(
+    historyId: string,
+    conversationMessages: Message[],
+  ) {
+    const userMessageCount = conversationMessages.filter((message) => message.role === "user").length;
+    const assistantMessageCount = conversationMessages.filter((message) => message.role === "assistant").length;
+    if (
+      (userMessageCount !== 4 && userMessageCount !== 7) ||
+      assistantMessageCount < userMessageCount + 1
+    ) return;
+    if (titleGeneratedPromptCountsRef.current.get(historyId) === userMessageCount) return;
+    titleGeneratedPromptCountsRef.current.set(historyId, userMessageCount);
+
+    try {
+      const token = isAuthenticated ? await getAccessTokenSilently() : null;
+      const response = await fetch("/api/title", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          messages: conversationMessages
+            .filter((message) => message.role === "user" || message.role === "assistant")
+            .map((message) => ({ role: message.role, content: message.content }))
+            .slice(-12),
+        }),
+      });
+      if (!response.ok) return;
+
+      const data = await response.json() as { title?: unknown };
+      if (typeof data.title !== "string") return;
+      const title = data.title
+        .replace(/^[\s"*'`–-]+|[\s"*'`–-]+$/g, "")
+        .replace(/\s+/g, " ")
+        .slice(0, 60)
+        .trim();
+      if (!title) return;
+
+      setHistories((previous) => previous.map((history) => (
+        history.id === historyId
+          ? { ...history, title, updatedAt: Date.now() }
+          : history
+      )));
+    } catch (error) {
+      console.error("Could not generate conversation title:", error);
+    }
+  }
+
   function updateHistoryMessages(
     historyId: string | null,
     nextMessages: Message[],
@@ -1160,6 +1210,7 @@ export default function ChatWindow() {
           }
         : history
     )));
+    void generateConversationTitle(historyId, nextMessages);
   }
 
   async function sendMessage(messageText = input, imageEditReference?: Message) {
