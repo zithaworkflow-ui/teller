@@ -18,6 +18,11 @@ Open [http://localhost:3000](http://localhost:3000) with your browser to see the
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
+Production sign-in opens an in-app dialog and uses Auth0's popup flow with the
+`google-oauth2` connection only. Enable that Google connection in Auth0 and
+allow the deployed app URL as an Auth0 callback URL. Local development retains
+the app's labeled local test account.
+
 ## Image generation
 
 Text chat, conversation titles, and CyberMail use NVIDIA's Nemotron 3.5 Bolt E4B model. Set the server-side `NVIDIA_API_KEY`; there is no provider fallback. NVIDIA's endpoint defaults to `https://integrate.api.nvidia.com/v1/chat/completions`; override it with `NVIDIA_API_BASE_URL` and set the chat model with `NVIDIA_CHAT_MODEL` (default `nvidia/nemotron-3.5-bolt-e4b`). Image-intent classification, image analysis, and audio transcription use `NVIDIA_MODEL` (configured as Nemotron 3.5 Super VL in `.env.local`).

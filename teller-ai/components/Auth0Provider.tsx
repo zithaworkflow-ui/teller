@@ -7,7 +7,9 @@ import type {
   RedirectLoginOptions,
   User,
 } from "@auth0/auth0-react";
-import { createContext, useCallback, useContext, useMemo, useSyncExternalStore, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
+import { createContext, useCallback, useContext, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
+import GoogleLoginDialog from "@/components/GoogleLoginDialog";
 import { LOCAL_TEST_ACCESS_TOKEN, LOCAL_TEST_USER_ID } from "@/lib/local-test-auth";
 
 const domain = process.env.NEXT_PUBLIC_AUTH0_DOMAIN;
@@ -59,10 +61,49 @@ export function useAppAuth() {
 
 function Auth0AppAuthBridge({ children }: { children: ReactNode }) {
   const auth = useAuth0();
-  return <AppAuthContext.Provider value={auth}>{children}</AppAuthContext.Provider>;
+  const router = useRouter();
+  const [loginOptions, setLoginOptions] = useState<RedirectLoginOptions | null>(null);
+
+  const loginWithRedirect = useCallback(async (options?: RedirectLoginOptions) => {
+    setLoginOptions(options || {});
+  }, []);
+
+  const continueWithGoogle = useCallback(async () => {
+    await auth.loginWithPopup({
+      authorizationParams: {
+        connection: "google-oauth2",
+        prompt: "select_account",
+      },
+    });
+    const returnTo = loginOptions?.appState?.returnTo;
+    setLoginOptions(null);
+    if (returnTo) {
+      const returnUrl = new URL(returnTo, window.location.origin);
+      if (returnUrl.origin === window.location.origin) {
+        router.push(`${returnUrl.pathname}${returnUrl.search}${returnUrl.hash}`);
+      }
+    }
+  }, [auth, loginOptions, router]);
+
+  const value = useMemo<AppAuth>(
+    () => ({ ...auth, loginWithRedirect }),
+    [auth, loginWithRedirect],
+  );
+
+  return (
+    <AppAuthContext.Provider value={value}>
+      {children}
+      <GoogleLoginDialog
+        isOpen={loginOptions !== null}
+        onClose={() => setLoginOptions(null)}
+        onContinue={continueWithGoogle}
+      />
+    </AppAuthContext.Provider>
+  );
 }
 
 function LocalTestAuthProvider({ children }: { children: ReactNode }) {
+  const [loginOptions, setLoginOptions] = useState<RedirectLoginOptions | null>(null);
   const isAuthenticated = useSyncExternalStore(
     subscribeToLocalAuth,
     getLocalAuthSnapshot,
@@ -70,10 +111,15 @@ function LocalTestAuthProvider({ children }: { children: ReactNode }) {
   );
 
   const loginWithRedirect = useCallback(async (options?: RedirectLoginOptions) => {
-    notifyLocalAuthChange(true);
-    const returnTo = options?.appState?.returnTo;
-    if (returnTo) window.location.assign(returnTo);
+    setLoginOptions(options || {});
   }, []);
+
+  const continueWithGoogle = useCallback(async () => {
+    notifyLocalAuthChange(true);
+    const returnTo = loginOptions?.appState?.returnTo;
+    setLoginOptions(null);
+    if (returnTo) window.location.assign(returnTo);
+  }, [loginOptions]);
 
   const logout = useCallback(async (options?: LogoutOptions) => {
     notifyLocalAuthChange(false);
@@ -94,7 +140,19 @@ function LocalTestAuthProvider({ children }: { children: ReactNode }) {
     [getAccessTokenSilently, isAuthenticated, loginWithRedirect, logout],
   );
 
-  return <AppAuthContext.Provider value={value}>{children}</AppAuthContext.Provider>;
+  return (
+    <AppAuthContext.Provider value={value}>
+      {children}
+      <GoogleLoginDialog
+        isOpen={loginOptions !== null}
+        onClose={() => setLoginOptions(null)}
+        onContinue={continueWithGoogle}
+        buttonLabel="Continue with local test account"
+        description="Use the local development test session."
+        showGoogleMark={false}
+      />
+    </AppAuthContext.Provider>
+  );
 }
 
 export function AppAuthProvider({ children }: { children: ReactNode }) {
