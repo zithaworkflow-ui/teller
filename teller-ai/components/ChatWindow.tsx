@@ -1706,7 +1706,7 @@ export default function ChatWindow() {
         <div className="flex h-full flex-col">
           <div className="mb-4">
             <h1 className="relative mb-2 flex items-center justify-center text-2xl font-bold">
-              <img src="/jupiter-black.svg" alt="Jupiter" className="h-20 w-20 object-contain" />
+              <img src="/t-and-jupiter-logo.png" alt="T and Jupiter" className="h-20 w-32 object-contain" />
               <button className="absolute right-0 flex h-9 w-9 items-center justify-center rounded-md bg-neutral-800 text-neutral-300 transition hover:bg-neutral-700 hover:text-white md:hidden" onClick={() => setIsSidebarOpen(false)} aria-label="Close sidebar" title="Close sidebar">
                 <PanelLeftClose size={18} aria-hidden="true" />
               </button>

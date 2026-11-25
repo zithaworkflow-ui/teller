@@ -20,9 +20,9 @@ export default function HomePage() {
         </div>
 
         <img
-          src="/jupiter-black.svg"
-          alt="Black Jupiter illustration"
-          className="mb-8 h-40 w-40"
+          src="/t-and-jupiter-logo.png"
+          alt="T and Jupiter logo"
+          className="mb-8 h-48 w-72 object-contain"
         />
 
         <h1 className="max-w-4xl text-5xl font-bold tracking-tight md:text-7xl">
@@ -34,21 +34,13 @@ export default function HomePage() {
           questions faster with a clean AI chat experience.
         </p>
 
-        <div className="mt-8 flex gap-4">
+        <div className="mt-4">
           <Link
             href="/chat"
             className="rounded-lg bg-white px-6 py-3 font-semibold text-black"
           >
             Start Chatting
           </Link>
-
-          <Link
-            href="/pricing"
-            className="rounded-lg border border-neutral-700 px-6 py-3 font-semibold"
-          >
-            View Pricing
-          </Link>
-
         </div>
       </section>
     </main>
