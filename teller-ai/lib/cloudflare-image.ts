@@ -1,6 +1,6 @@
 import sharp from "sharp";
 
-const DEFAULT_IMAGE_GENERATION_MODEL = "@cf/black-forest-labs/flux-2-klein-4b";
+const FLUX_IMAGE_GENERATION_MODEL = "@cf/black-forest-labs/flux-2-klein-4b";
 
 function normalizePrompt(prompt: string) {
   const trimmed = prompt.trim().replace(/\s+/g, " ");
@@ -110,11 +110,6 @@ export async function generateImageWithCloudflare(
     throw new Error("Image generation is not configured on the server.");
   }
 
-  const model = process.env.IMAGE_GENERATION_MODEL?.trim() || DEFAULT_IMAGE_GENERATION_MODEL;
-  if (!/^@cf\/[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+$/.test(model)) {
-    throw new Error("The configured Cloudflare image model is invalid.");
-  }
-
   const { width, height } = getImageDimensions(resolution);
   const normalizedPrompt = normalizePrompt(prompt);
   const formData = new FormData();
@@ -134,9 +129,8 @@ export async function generateImageWithCloudflare(
     );
   }
 
-  const encodedModel = model.split("/").map((part) => part === "@cf" ? part : encodeURIComponent(part)).join("/");
   const response = await fetch(
-    `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/ai/run/${encodedModel}`,
+    `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/ai/run/${FLUX_IMAGE_GENERATION_MODEL}`,
     {
       method: "POST",
       headers: { Authorization: `Bearer ${apiToken}` },

@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { ArrowUpRight, Sparkles } from "lucide-react";
+import metallicTEmblem from "../Futuristic Metallic T Emblem.png";
 
 const capabilities = ["Research", "Writing", "Ideas", "Code"];
 
@@ -16,9 +17,12 @@ export default function HomePage() {
       <div className="mx-auto flex min-h-screen max-w-7xl flex-col px-5 sm:px-8">
         <header className="flex items-center justify-between border-b border-white/[0.09] py-5">
           <Link href="/" aria-label="Teller AI home" className="flex items-center gap-3">
-            <span className="flex h-10 w-10 items-center justify-center rounded-full border border-blue-200/20 bg-blue-400/10 text-lg font-semibold text-blue-100 shadow-[0_0_28px_rgba(59,130,246,0.16)]">
-              T
-            </span>
+            <Image
+              src={metallicTEmblem}
+              alt=""
+              priority
+              className="h-10 w-10 rounded-full object-cover drop-shadow-[0_0_16px_rgba(59,130,246,0.3)]"
+            />
             <span className="text-sm font-semibold tracking-[0.18em]">
               TELLER <span className="text-blue-200/55">AI</span>
             </span>
@@ -39,11 +43,6 @@ export default function HomePage() {
         </header>
 
         <section className="flex flex-1 flex-col items-center pt-16 text-center sm:pt-20 lg:pt-24">
-          <div className="inline-flex items-center gap-2 rounded-full border border-blue-200/15 bg-blue-300/[0.07] px-3.5 py-2 text-xs font-medium tracking-wide text-blue-100">
-            <Sparkles aria-hidden="true" className="h-3.5 w-3.5 text-sky-300" />
-            Meet TellerWorkflow™
-          </div>
-
           <h1 className="mt-7 max-w-5xl text-[3.4rem] font-medium leading-[0.98] tracking-[-0.075em] sm:text-7xl lg:text-[6.5rem]">
             Think further.
             <span className="mt-2 block bg-gradient-to-r from-blue-100 via-sky-300 to-blue-500 bg-clip-text text-transparent">
