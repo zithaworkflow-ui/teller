@@ -433,6 +433,7 @@ export default function ChatWindow() {
 
   const [histories, setHistories] = useState<HistoryItem[]>([]);
   const [activeHistoryId, setActiveHistoryId] = useState<string | null>(null);
+  const activeHistoryIdRef = useRef<string | null>(null);
   const [activeAgent, setActiveAgent] = useState<AgentMode>("teller");
   const [activeMapQuery, setActiveMapQuery] = useState("");
   const historyHydratedRef = useRef(false);
@@ -444,8 +445,12 @@ export default function ChatWindow() {
   const [isRecording, setIsRecording] = useState(false);
   const [isStartingRecording, setIsStartingRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
+  const loadingHistoryIdsRef = useRef(new Set<string>());
+  const [loadingHistoryIds, setLoadingHistoryIds] = useState<Set<string>>(() => new Set());
+  const generatingImageHistoryIdsRef = useRef(new Set<string>());
+  const [generatingImageHistoryIds, setGeneratingImageHistoryIds] = useState<Set<string>>(() => new Set());
+  const loading = activeHistoryId !== null && loadingHistoryIds.has(activeHistoryId);
+  const isGeneratingImage = activeHistoryId !== null && generatingImageHistoryIds.has(activeHistoryId);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const isRecordingRef = useRef(false);
   const isStartingRecordingRef = useRef(false);
@@ -517,6 +522,15 @@ export default function ChatWindow() {
       "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=200&q=80",
     isAuthenticated,
   };
+
+  function selectHistory(historyId: string | null) {
+    activeHistoryIdRef.current = historyId;
+    setActiveHistoryId(historyId);
+  }
+
+  useEffect(() => {
+    activeHistoryIdRef.current = activeHistoryId;
+  }, [activeHistoryId]);
 
   useEffect(() => {
     setIsMounted(true);
@@ -605,7 +619,7 @@ export default function ChatWindow() {
 
     historyHydratedRef.current = false;
     try {
-      setActiveHistoryId(null);
+      selectHistory(null);
       setActiveAgent("teller");
       setActiveMapQuery("");
       setMessages([
@@ -628,7 +642,7 @@ export default function ChatWindow() {
           updatedAt: Date.now(),
         };
         setHistories([initial]);
-        setActiveHistoryId(initial.id);
+        selectHistory(initial.id);
         setMessages(initialMessages);
         setActiveAgent("teller");
         setActiveMapQuery("");
@@ -646,7 +660,7 @@ export default function ChatWindow() {
           const remoteHistories = data.history as HistoryItem[];
           if (remoteHistories.length) {
             setHistories(remoteHistories);
-            setActiveHistoryId(remoteHistories[0].id);
+            selectHistory(remoteHistories[0].id);
             setMessages(remoteHistories[0].messages);
             setActiveAgent(remoteHistories[0].agent === "cyber" || remoteHistories[0].agent === "maps" ? remoteHistories[0].agent : "teller");
             setActiveMapQuery(typeof remoteHistories[0].mapQuery === "string" ? remoteHistories[0].mapQuery : "");
@@ -664,7 +678,7 @@ export default function ChatWindow() {
               updatedAt: Date.now(),
             };
             setHistories([initial]);
-            setActiveHistoryId(initial.id);
+            selectHistory(initial.id);
             setMessages(initialMessages);
             setActiveAgent("teller");
             setActiveMapQuery("");
@@ -672,7 +686,7 @@ export default function ChatWindow() {
         })
         .catch(() => {
           setHistories([]);
-          setActiveHistoryId(null);
+          selectHistory(null);
         })
         .finally(() => {
           historyHydratedRef.current = true;
@@ -722,7 +736,7 @@ export default function ChatWindow() {
       (history.agent === "cyber" || history.agent === "maps" ? history.agent : "teller") === requestedAgent
     ));
     if (modeHistory) {
-      setActiveHistoryId(modeHistory.id);
+      selectHistory(modeHistory.id);
       setActiveAgent(requestedAgent);
       setActiveMapQuery(typeof modeHistory.mapQuery === "string" ? modeHistory.mapQuery : "");
       setMessages(modeHistory.messages);
@@ -738,7 +752,7 @@ export default function ChatWindow() {
         updatedAt: Date.now(),
       };
       setHistories((previous) => [newHistory, ...previous]);
-      setActiveHistoryId(id);
+      selectHistory(id);
       setActiveAgent(requestedAgent);
       setActiveMapQuery("");
       setMessages(initialMessages);
@@ -817,7 +831,7 @@ export default function ChatWindow() {
       return;
     }
 
-    setActiveHistoryId(modeHistory.id);
+    selectHistory(modeHistory.id);
     setActiveAgent(mode);
     setActiveMapQuery(typeof modeHistory.mapQuery === "string" ? modeHistory.mapQuery : "");
     setMessages(modeHistory.messages);
@@ -843,7 +857,7 @@ export default function ChatWindow() {
     };
     const next = [newItem, ...histories];
     setHistories(next);
-    setActiveHistoryId(id);
+    selectHistory(id);
     setActiveAgent(agent);
     setActiveMapQuery("");
     setMessages(initialMessages);
@@ -865,7 +879,7 @@ export default function ChatWindow() {
           (history.agent === "cyber" || history.agent === "maps" ? history.agent : "teller") === activeAgent
         ));
         if (nextModeHistory) {
-          setActiveHistoryId(nextModeHistory.id);
+          selectHistory(nextModeHistory.id);
           setMessages(nextModeHistory.messages);
           setActiveMapQuery(typeof nextModeHistory.mapQuery === "string" ? nextModeHistory.mapQuery : "");
         } else {
@@ -884,7 +898,7 @@ export default function ChatWindow() {
             updatedAt: Date.now(),
           };
           next.unshift(newHist);
-          setActiveHistoryId(newId);
+          selectHistory(newId);
           setActiveMapQuery("");
           setMessages(initialMessages);
         }
@@ -896,7 +910,7 @@ export default function ChatWindow() {
   function loadHistory(id: string) {
     const h = histories.find((x) => x.id === id);
     if (!h) return;
-    setActiveHistoryId(id);
+    selectHistory(id);
     setActiveAgent(h.agent === "cyber" || h.agent === "maps" ? h.agent : "teller");
     setActiveMapQuery(typeof h.mapQuery === "string" ? h.mapQuery : "");
     setMessages(h.messages);
@@ -966,37 +980,83 @@ export default function ChatWindow() {
     if (!generatedImages.length) void loadGeneratedImages(true);
   }
 
+  function setHistoryLoading(historyId: string, isLoading: boolean) {
+    const next = new Set(loadingHistoryIdsRef.current);
+    if (isLoading) next.add(historyId);
+    else next.delete(historyId);
+    loadingHistoryIdsRef.current = next;
+    setLoadingHistoryIds(next);
+  }
+
+  function setHistoryGeneratingImage(historyId: string, isGenerating: boolean) {
+    const next = new Set(generatingImageHistoryIdsRef.current);
+    if (isGenerating) next.add(historyId);
+    else next.delete(historyId);
+    generatingImageHistoryIdsRef.current = next;
+    setGeneratingImageHistoryIds(next);
+  }
+
+  function updateHistoryMessages(
+    historyId: string | null,
+    nextMessages: Message[],
+    updates: Partial<Pick<HistoryItem, "agent" | "mapQuery">> = {},
+  ) {
+    if (!historyId) return;
+    const updatedAt = Date.now();
+    setHistories((previous) => previous.map((history) => (
+      history.id === historyId
+        ? {
+            ...history,
+            ...updates,
+            title: history.title === "New chat"
+              ? nextMessages.find((message) => message.role === "user")?.content.slice(0, 60) || history.title
+              : history.title,
+            messages: nextMessages,
+            updatedAt,
+          }
+        : history
+    )));
+  }
+
   async function sendMessage(messageText = input) {
     if (!messageText.trim()) return;
     if (monthlyChatCount >= usageLimit && !getExplicitMemoryRequest(messageText)) return;
+    const requestHistoryId = activeHistoryIdRef.current;
+    if (!requestHistoryId) return;
+    if (requestHistoryId && loadingHistoryIdsRef.current.has(requestHistoryId)) return;
+    const requestAgent = activeAgent;
+    const requestFile = pendingFile;
 
     const userMessage: Message = {
       role: "user",
       content: messageText.trim(),
-      file: pendingFile,
+      file: requestFile,
     };
 
     const updatedMessages = [...messages, userMessage];
 
     setMessages(updatedMessages);
     setInput("");
-    setLoading(true);
+    if (requestHistoryId) {
+      setHistoryLoading(requestHistoryId, true);
+      updateHistoryMessages(
+        requestHistoryId,
+        updatedMessages,
+        requestAgent === "maps" && !getExplicitMemoryRequest(userMessage.content)
+          ? { agent: requestAgent, mapQuery: userMessage.content }
+          : { agent: requestAgent },
+      );
+    }
+    setPendingFile(null);
     setIsModeMenuOpen(false);
     const isMemoryRequest = Boolean(getExplicitMemoryRequest(userMessage.content));
-    if (activeAgent === "maps" && !isMemoryRequest) {
+    if (requestAgent === "maps" && !isMemoryRequest) {
       setActiveMapQuery(userMessage.content);
-      if (activeHistoryId) {
-        setHistories((previous) => previous.map((history) => (
-          history.id === activeHistoryId
-            ? { ...history, agent: "maps", mapQuery: userMessage.content }
-            : history
-        )));
-      }
     }
 
     try {
-      if (activeAgent === "cyber") {
-        if (pendingFile) throw new Error("CyberMail currently works with Gmail and Calendar, not file attachments. Remove the attachment and try again.");
+      if (requestAgent === "cyber") {
+        if (requestFile) throw new Error("CyberMail currently works with Gmail and Calendar, not file attachments. Remove the attachment and try again.");
         const token = isAuthenticated ? await getAccessTokenSilently() : null;
         const response = await fetch("/api/cyber-agent", {
           method: "POST",
@@ -1017,21 +1077,15 @@ export default function ChatWindow() {
           ...(data.pendingAction ? { pendingAction: data.pendingAction as CyberPendingAction } : {}),
         };
         const nextMessages = [...updatedMessages, assistantMessage];
-        setMessages(nextMessages);
-        if (activeHistoryId) {
-          setHistories((previous) => previous.map((history) => (
-            history.id === activeHistoryId
-              ? { ...history, agent: "cyber", messages: nextMessages, updatedAt: Date.now() }
-              : history
-          )));
-        }
+        if (activeHistoryIdRef.current === requestHistoryId) setMessages(nextMessages);
+        updateHistoryMessages(requestHistoryId, nextMessages, { agent: "cyber" });
         return;
       }
-      if (activeAgent === "maps" && pendingFile) {
+      if (requestAgent === "maps" && requestFile) {
         throw new Error("CyberMaps works with locations and directions, not file attachments. Remove the attachment and try again.");
       }
 
-      const hasImageUpload = Boolean(pendingFile?.type.startsWith("image/"));
+      const hasImageUpload = Boolean(requestFile?.type.startsWith("image/"));
       const currentVisualDirection = extractVisualDetails(userMessage.content);
       const previousAssistantVisualDirection = updatedMessages
         .slice(0, -1)
@@ -1041,7 +1095,7 @@ export default function ChatWindow() {
       const previousVisualDirection = previousAssistantVisualDirection
         ? extractVisualDetails(previousAssistantVisualDirection)
         : null;
-      const previousGeneratedImage = !pendingFile
+      const previousGeneratedImage = !requestFile
         ? updatedMessages.slice(0, -1).reverse().find((message) => (
             message.role === "assistant" &&
             Boolean(message.imageUrl) &&
@@ -1059,14 +1113,14 @@ export default function ChatWindow() {
       let imageIntentClassificationFailed = false;
       const useImageIntentHeuristic = (
         !isAuthenticated ||
-        activeAgent !== "teller" ||
+        requestAgent !== "teller" ||
         userMessage.content.length > 4000
       );
       if (!explicitImageIntent &&
-        activeAgent === "teller" &&
+        requestAgent === "teller" &&
         isAuthenticated &&
         userMessage.content.length <= 4000 &&
-        (!pendingFile || hasImageUpload)) {
+        (!requestFile || hasImageUpload)) {
         const token = await getAccessTokenSilently();
         let classificationResponse: Response | null = null;
         try {
@@ -1127,7 +1181,7 @@ export default function ChatWindow() {
         ? explicitImageIntent ||
           (!imageIntentClassificationFailed &&
             (classifiedImageIntent || isImageModificationPrompt(userMessage.content)))
-        : !pendingFile && (
+        : !requestFile && (
             explicitImageIntent ||
             (!imageIntentClassificationFailed &&
               (classifiedImageIntent ||
@@ -1137,7 +1191,7 @@ export default function ChatWindow() {
           );
 
       if (shouldGenerateImage) {
-        setIsGeneratingImage(true);
+        setHistoryGeneratingImage(requestHistoryId, true);
         const imagePrompt = currentVisualDirection ||
           (shouldCreateImageVariation
             ? [
@@ -1159,8 +1213,8 @@ export default function ChatWindow() {
           },
           body: JSON.stringify({
             prompt: imagePrompt,
-            historyId: activeHistoryId,
-            ...(hasImageUpload ? { referenceImage: pendingFile?.dataUrl } : {}),
+            historyId: requestHistoryId,
+            ...(hasImageUpload ? { referenceImage: requestFile?.dataUrl } : {}),
             ...((shouldEditGeneratedImage || shouldCreateImageVariation) && previousGeneratedImage
               ? { referenceImageStoragePath: previousGeneratedImage.imageStoragePath }
               : {}),
@@ -1196,14 +1250,9 @@ export default function ChatWindow() {
           imageStoragePath: imageData.imageStoragePath,
           imageDescription: imageData.imageDescription,
         };
-        setMessages([...updatedMessages, assistantMessage]);
-        if (activeHistoryId) {
-          setHistories((previous) => previous.map((history) => (
-            history.id === activeHistoryId
-              ? { ...history, messages: [...updatedMessages, assistantMessage], updatedAt: Date.now() }
-              : history
-          )));
-        }
+        const nextMessages = [...updatedMessages, assistantMessage];
+        if (activeHistoryIdRef.current === requestHistoryId) setMessages(nextMessages);
+        updateHistoryMessages(requestHistoryId, nextMessages, { agent: requestAgent });
         return;
       }
 
@@ -1220,7 +1269,7 @@ export default function ChatWindow() {
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
-          agent: activeAgent,
+          agent: requestAgent,
           clarifyImageIntent: imageIntentClassificationFailed && !explicitImageIntent,
           messages: updatedMessages.map((msg, index) => {
             const isCurrentImage = msg === userMessage && msg.file?.type.startsWith("image/");
@@ -1268,17 +1317,28 @@ export default function ChatWindow() {
               }
             : {}),
         };
-        setMessages([...updatedMessages, assistantMessage]);
+        const nextMessages = [...updatedMessages, assistantMessage];
+        if (activeHistoryIdRef.current === requestHistoryId) setMessages(nextMessages);
+        updateHistoryMessages(requestHistoryId, nextMessages, { agent: requestAgent });
       } else {
-        setMessages([...updatedMessages, { role: "assistant", content: "Sorry, something went wrong.", file: null }]);
+        const nextMessages: Message[] = [
+          ...updatedMessages,
+          { role: "assistant", content: "Sorry, something went wrong.", file: null },
+        ];
+        if (activeHistoryIdRef.current === requestHistoryId) setMessages(nextMessages);
+        updateHistoryMessages(requestHistoryId, nextMessages, { agent: requestAgent });
       }
     } catch (err) {
       const errorMessage = getErrorMessage(err) || "Network error. Please try again.";
-      setMessages([...updatedMessages, { role: "assistant", content: errorMessage, file: null }]);
+      const nextMessages: Message[] = [
+        ...updatedMessages,
+        { role: "assistant", content: errorMessage, file: null },
+      ];
+      if (activeHistoryIdRef.current === requestHistoryId) setMessages(nextMessages);
+      updateHistoryMessages(requestHistoryId, nextMessages, { agent: requestAgent });
     } finally {
-      setLoading(false);
-      setIsGeneratingImage(false);
-      setPendingFile(null);
+      setHistoryLoading(requestHistoryId, false);
+      setHistoryGeneratingImage(requestHistoryId, false);
     }
   }
 
@@ -1644,6 +1704,16 @@ export default function ChatWindow() {
   const modeHistories = histories.filter((history) => (
     (history.agent === "cyber" || history.agent === "maps" ? history.agent : "teller") === activeAgent
   ));
+  const activeAgentName = activeAgent === "cyber"
+    ? "CyberMail"
+    : activeAgent === "maps"
+      ? "CyberMaps"
+      : "Teller AI";
+  const ActiveAgentIcon = activeAgent === "cyber"
+    ? Mail
+    : activeAgent === "maps"
+      ? MapPinned
+      : Sparkles;
   const normalizedHistorySearchQuery = historySearchQuery.trim().toLocaleLowerCase();
   const matchingModeHistories = modeHistories.filter((history) => (
     !normalizedHistorySearchQuery ||
@@ -1668,6 +1738,15 @@ export default function ChatWindow() {
               <button className="absolute right-0 flex h-9 w-9 items-center justify-center rounded-md bg-neutral-800 text-neutral-300 transition hover:bg-neutral-700 hover:text-white md:hidden" onClick={() => setIsSidebarOpen(false)} aria-label="Close sidebar" title="Close sidebar">
                 <PanelLeftClose size={18} aria-hidden="true" />
               </button>
+              <button
+                type="button"
+                className="absolute right-0 hidden h-9 w-9 items-center justify-center rounded-md bg-neutral-800 text-neutral-300 transition hover:bg-neutral-700 hover:text-white md:inline-flex"
+                onClick={() => setIsHistoryVisible(false)}
+                aria-label="Hide chat history"
+                title="Hide chat history"
+              >
+                <PanelLeftClose size={18} aria-hidden="true" />
+              </button>
             </h1>
 
             <button
@@ -1688,6 +1767,15 @@ export default function ChatWindow() {
 
           <div className="min-h-0 flex-1 overflow-y-auto space-y-5 text-sm text-neutral-400 modern-scroll">
             <section aria-labelledby="chat-history-heading">
+              <div className="mb-3 flex items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.025] px-3 py-2">
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-sky-500/10 text-sky-300">
+                  <ActiveAgentIcon size={15} aria-hidden="true" />
+                </span>
+                <div className="min-w-0">
+                  <p className="truncate text-xs font-semibold text-neutral-200">{activeAgentName}</p>
+                  <p className="text-[10px] text-neutral-500">Independent chat history</p>
+                </div>
+              </div>
               <div className="mb-2 flex items-center justify-between px-1">
                 <h2 id="chat-history-heading" className="text-[10px] font-semibold uppercase tracking-[0.16em] text-neutral-500">Chat history</h2>
                 <button
@@ -1731,17 +1819,23 @@ export default function ChatWindow() {
                 <>
                   {visibleModeHistories.length === 0 && (
                     <p className="px-1">
-                      {normalizedHistorySearchQuery ? "No matching chats" : "No chats yet"}
+                      {normalizedHistorySearchQuery
+                        ? `No matching ${activeAgentName} chats`
+                        : `No ${activeAgentName} chats yet`}
                     </p>
                   )}
                   <div className="space-y-1.5">
                     {visibleModeHistories.map((h) => (
                       <div
                         key={h.id}
-                        className={`group flex items-center gap-1 rounded-lg border p-1 transition-colors ${
+                        className={`group flex items-center gap-1 rounded-lg border p-1 transition-[color,background-color,border-color,opacity] duration-200 ${
                           h.id === activeHistoryId
                             ? "border-sky-400/25 bg-sky-400/[0.08] shadow-[inset_2px_0_0_0_rgba(56,189,248,0.8)]"
-                            : "border-white/[0.06] bg-white/[0.025] hover:border-white/10 hover:bg-white/[0.05]"
+                            : `border-white/[0.06] bg-white/[0.025] hover:border-white/10 hover:bg-white/[0.05] ${
+                                loadingHistoryIds.size > 0 && !loadingHistoryIds.has(h.id)
+                                  ? "opacity-40"
+                                  : "opacity-100"
+                              }`
                         }`}
                       >
                         <button
@@ -1750,8 +1844,17 @@ export default function ChatWindow() {
                           aria-current={h.id === activeHistoryId ? "page" : undefined}
                           className="min-w-0 flex-1 px-2 py-1.5 text-left"
                         >
-                          <span className={`block truncate text-xs ${h.id === activeHistoryId ? "font-medium text-sky-100" : "text-neutral-200 group-hover:text-white"}`}>
-                            {h.title}
+                          <span className={`flex min-w-0 items-center gap-1.5 truncate text-xs ${h.id === activeHistoryId ? "font-medium text-sky-100" : "text-neutral-200 group-hover:text-white"}`}>
+                            {loadingHistoryIds.has(h.id) && (
+                              <span
+                                role="status"
+                                aria-label={`${activeAgentName} is thinking`}
+                                className="shrink-0 text-sky-400"
+                              >
+                                <LoaderCircle size={13} className="animate-spin" aria-hidden="true" />
+                              </span>
+                            )}
+                            <span className="truncate">{h.title}</span>
                           </span>
                           <span className="mt-0.5 block truncate text-[10px] text-neutral-500">
                             {new Date(h.updatedAt).toLocaleString()}
@@ -1829,9 +1932,17 @@ export default function ChatWindow() {
               <button className="flex h-10 w-10 items-center justify-center rounded-md bg-neutral-800 text-neutral-300 transition hover:bg-neutral-700 hover:text-white md:hidden" onClick={() => setIsSidebarOpen((s) => !s)} aria-label="Open chat sidebar" title="Open chat sidebar">
                 <PanelLeftOpen size={20} aria-hidden="true" />
               </button>
-              <button className="hidden h-10 w-10 items-center justify-center rounded-md bg-neutral-800 text-neutral-300 transition hover:bg-neutral-700 hover:text-white md:inline-flex" onClick={() => setIsHistoryVisible((v) => !v)} aria-label={isHistoryVisible ? "Hide chat history" : "Show chat history"} title={isHistoryVisible ? "Hide chat history" : "Show chat history"}>
-                {isHistoryVisible ? <PanelLeftClose size={20} aria-hidden="true" /> : <PanelLeftOpen size={20} aria-hidden="true" />}
-              </button>
+              {!isHistoryVisible && (
+                <button
+                  type="button"
+                  className="hidden h-10 w-10 items-center justify-center rounded-md bg-neutral-800 text-neutral-300 transition hover:bg-neutral-700 hover:text-white md:inline-flex"
+                  onClick={() => setIsHistoryVisible(true)}
+                  aria-label="Show chat history"
+                  title="Show chat history"
+                >
+                  <PanelLeftOpen size={20} aria-hidden="true" />
+                </button>
+              )}
               {activeAgent !== "teller" && (
                 <>
                   {activeAgent === "cyber" ? (
