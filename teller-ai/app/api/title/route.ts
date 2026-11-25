@@ -30,8 +30,10 @@ export async function POST(req: Request) {
     }
 
     const titlePrompt =
-      "Understand the user's main intent and create a clear, specific conversation title. " +
-      "Use no more than 6 words. Do not include punctuation at the end, labels, quotes, or generic text such as \"New chat\". " +
+      "Create the best short title for this conversation. " +
+      "Identify the user's primary task or topic, prioritizing the latest exchange while preserving the main theme of the conversation. " +
+      "Use 2 to 6 words. Prefer a natural noun phrase or action phrase that is specific and descriptive. " +
+      "Use title case. Do not add a period or other ending punctuation, labels, brackets, numbering, quotation marks, explanations, or generic text such as \"New chat\" or \"Conversation\". " +
       "Return only the title.";
 
     const titleResult = await callTellerAI(
@@ -40,7 +42,10 @@ export async function POST(req: Request) {
         maxTokens: 256,
         compactPrompt: true,
         systemPrompt:
-          "You generate concise titles for conversations. Infer the topic and goal from the exchange, not merely the first few words.",
+          "You are a precise conversation-title generator. Use the full exchange to infer the user's central intent, topic, and desired outcome. " +
+          "Prefer specific entities and outcomes over vague summaries. " +
+          "Never reproduce the user's wording verbatim unless it already is a clear, concise title. " +
+          "Return exactly one title with no extra text.",
       },
     );
 
