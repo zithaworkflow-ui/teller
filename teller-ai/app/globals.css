@@ -325,6 +325,10 @@ body {
   background-color: #f5f5f5;
 }
 
+[data-theme="light"] .sidebar-t-logo {
+  filter: invert(1);
+}
+
 [data-theme="light"] .bg-neutral-900 {
   background-color: #f5f5f5;
 }
@@ -374,6 +378,10 @@ body {
   [data-theme="auto"] {
     color-scheme: light;
     background-color: #f5f5f5;
+  }
+
+  [data-theme="auto"] .sidebar-t-logo {
+    filter: invert(1);
   }
 
   [data-theme="auto"] .bg-neutral-900 {

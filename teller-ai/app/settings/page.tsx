@@ -1,6 +1,7 @@
 "use client";
 
 import { useAppAuth } from "@/components/Auth0Provider";
+import Image from "next/image";
 import { CalendarDays, Check, LoaderCircle, Mail, Upload } from "lucide-react";
 import { useEffect, useState, type ChangeEvent, type FormEvent } from "react";
 import PayPalUpgradeButton from "@/components/PayPalUpgradeButton";
@@ -498,7 +499,14 @@ export default function AccountSettingsPage() {
 
   return (
     <main className="min-h-screen bg-neutral-950 px-6 py-10 text-white">
-      <div className="mx-auto max-w-3xl rounded-2xl border border-neutral-800 bg-neutral-900 p-8 shadow-xl">
+      <div className="relative mx-auto max-w-3xl rounded-2xl border border-neutral-800 bg-neutral-900 p-8 shadow-xl">
+        <Image
+          src="/t-emblem.png"
+          alt="Teller T emblem"
+          width={862}
+          height={640}
+          className="absolute right-8 top-8 h-8 w-8 object-contain"
+        />
         <div className="mb-6 flex items-center gap-4">
           <img
             src={accountProfile.picture}

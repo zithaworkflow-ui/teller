@@ -1709,11 +1709,6 @@ export default function ChatWindow() {
     : activeAgent === "maps"
       ? "CyberMaps"
       : "Teller AI";
-  const ActiveAgentIcon = activeAgent === "cyber"
-    ? Mail
-    : activeAgent === "maps"
-      ? MapPinned
-      : Sparkles;
   const normalizedHistorySearchQuery = historySearchQuery.trim().toLocaleLowerCase();
   const matchingModeHistories = modeHistories.filter((history) => (
     !normalizedHistorySearchQuery ||
@@ -1733,21 +1728,47 @@ export default function ChatWindow() {
       <aside className={`fixed inset-y-0 left-0 z-40 w-72 transform border-r border-neutral-800 bg-neutral-900 p-4 transition-[transform,box-shadow,border-color] duration-300 ease-out hover:border-sky-400/20 hover:shadow-[4px_0_24px_rgba(56,189,248,0.08)] active:scale-[0.995] md:static md:translate-x-0 ${isHistoryVisible ? 'md:block' : 'md:hidden'} ${isSidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"}`} aria-hidden={!isSidebarOpen && true}>
         <div className="flex h-full flex-col">
           <div className="mb-4">
-            <h1 className="relative mb-2 flex items-center justify-center text-2xl font-bold">
-              <img src="/t-and-jupiter-logo.png" alt="T and Jupiter" className="h-20 w-32 object-contain" />
-              <button className="absolute right-0 flex h-9 w-9 items-center justify-center rounded-md bg-neutral-800 text-neutral-300 transition hover:bg-neutral-700 hover:text-white md:hidden" onClick={() => setIsSidebarOpen(false)} aria-label="Close sidebar" title="Close sidebar">
-                <PanelLeftClose size={18} aria-hidden="true" />
-              </button>
-              <button
-                type="button"
-                className="absolute right-0 hidden h-9 w-9 items-center justify-center rounded-md bg-neutral-800 text-neutral-300 transition hover:bg-neutral-700 hover:text-white md:inline-flex"
-                onClick={() => setIsHistoryVisible(false)}
-                aria-label="Hide chat history"
-                title="Hide chat history"
-              >
-                <PanelLeftClose size={18} aria-hidden="true" />
-              </button>
-            </h1>
+            <div className="mb-2 flex items-center justify-between">
+              <img src="/t-emblem.png" alt="Teller T emblem" className="sidebar-t-logo h-16 w-20 object-contain" />
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  aria-label={isHistorySearchOpen ? "Close chat history search" : "Search chat history"}
+                  aria-expanded={isHistorySearchOpen}
+                  aria-controls="chat-history-search"
+                  title={isHistorySearchOpen ? "Close search" : "Search chats"}
+                  onClick={() => {
+                    if (isHistorySearchOpen) {
+                      setIsHistorySearchOpen(false);
+                      setHistorySearchQuery("");
+                    } else {
+                      setIsHistorySearchOpen(true);
+                    }
+                  }}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-md text-neutral-400 transition hover:bg-neutral-800 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-400"
+                >
+                  <Search size={16} aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  className="inline-flex h-8 w-8 items-center justify-center text-neutral-400 transition hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-400 md:hidden"
+                  onClick={() => setIsSidebarOpen(false)}
+                  aria-label="Close sidebar"
+                  title="Close sidebar"
+                >
+                  <PanelLeftClose size={18} aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  className="hidden h-8 w-8 items-center justify-center text-neutral-400 transition hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-400 md:inline-flex"
+                  onClick={() => setIsHistoryVisible(false)}
+                  aria-label="Hide chat history"
+                  title="Hide chat history"
+                >
+                  <PanelLeftClose size={18} aria-hidden="true" />
+                </button>
+              </div>
+            </div>
 
             <button
               type="button"
@@ -1767,35 +1788,8 @@ export default function ChatWindow() {
 
           <div className="min-h-0 flex-1 overflow-y-auto space-y-5 text-sm text-neutral-400 modern-scroll">
             <section aria-labelledby="chat-history-heading">
-              <div className="mb-3 flex items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.025] px-3 py-2">
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-sky-500/10 text-sky-300">
-                  <ActiveAgentIcon size={15} aria-hidden="true" />
-                </span>
-                <div className="min-w-0">
-                  <p className="truncate text-xs font-semibold text-neutral-200">{activeAgentName}</p>
-                  <p className="text-[10px] text-neutral-500">Independent chat history</p>
-                </div>
-              </div>
               <div className="mb-2 flex items-center justify-between px-1">
                 <h2 id="chat-history-heading" className="text-[10px] font-semibold uppercase tracking-[0.16em] text-neutral-500">Chat history</h2>
-                <button
-                  type="button"
-                  aria-label={isHistorySearchOpen ? "Close chat history search" : "Search chat history"}
-                  aria-expanded={isHistorySearchOpen}
-                  aria-controls="chat-history-search"
-                  title={isHistorySearchOpen ? "Close search" : "Search chats"}
-                  onClick={() => {
-                    if (isHistorySearchOpen) {
-                      setIsHistorySearchOpen(false);
-                      setHistorySearchQuery("");
-                    } else {
-                      setIsHistorySearchOpen(true);
-                    }
-                  }}
-                  className="inline-flex h-7 w-7 items-center justify-center rounded-md text-neutral-400 transition duration-200 hover:scale-110 hover:bg-neutral-800 hover:text-white active:scale-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-400"
-                >
-                  <Search size={15} aria-hidden="true" />
-                </button>
               </div>
               {isHistorySearchOpen && (
                 <input
