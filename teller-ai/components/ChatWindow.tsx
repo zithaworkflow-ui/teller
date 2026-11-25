@@ -240,11 +240,6 @@ function getModeGreeting(agent: AgentMode) {
   return TELLER_GREETING;
 }
 
-function isImageSearchRequest(prompt: string) {
-  return /\b(?:find|search(?:\s+for)?|look\s+for|browse|source|pull\s+up)\b[\s\S]{0,60}\b(?:images?|pictures?|photos?|photographs?)\b/i.test(prompt) ||
-    /\bshow\s+(?:me\s+)?(?:(?:some|a\s+few|the|an?)\s+)?(?:images?|pictures?|photos?|photographs?)\b/i.test(prompt);
-}
-
 function isImageGenerationPrompt(prompt: string) {
   return /\b(?:pic|picture|image|photo|artwork|illustration)\b/i.test(prompt) &&
     /\b(?:make|create|generate|draw|design|show|of|for|with|turn)\b/i.test(prompt);
@@ -1282,7 +1277,6 @@ export default function ChatWindow() {
       }
 
       const hasImageUpload = Boolean(requestFile?.type.startsWith("image/"));
-      const imageSearchRequest = isImageSearchRequest(userMessage.content);
       const currentVisualDirection = extractVisualDetails(userMessage.content);
       const previousAssistantVisualDirection = updatedMessages
         .slice(0, -1)
@@ -1314,7 +1308,6 @@ export default function ChatWindow() {
         userMessage.content.length > 4000
       );
       if (!explicitImageIntent &&
-        !imageSearchRequest &&
         requestAgent === "teller" &&
         isAuthenticated &&
         userMessage.content.length <= 4000 &&
@@ -1381,8 +1374,7 @@ export default function ChatWindow() {
             (classifiedImageIntent || isImageModificationPrompt(userMessage.content)))
         : !requestFile && (
             explicitImageIntent ||
-            (!imageSearchRequest &&
-              !imageIntentClassificationFailed &&
+            (!imageIntentClassificationFailed &&
               (classifiedImageIntent ||
                 localImageIntent ||
                 (useImageIntentHeuristic && isImageGenerationPrompt(userMessage.content)))
