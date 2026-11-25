@@ -360,6 +360,16 @@ body {
   scrollbar-color: rgb(15 23 42 / 20%) transparent;
 }
 
+[data-theme="light"] .chat-history-active {
+  border-color: #93c5fd;
+  background-color: #dbeafe;
+  box-shadow: inset 2px 0 0 #0284c7;
+}
+
+[data-theme="light"] .chat-history-active-title {
+  color: #075985;
+}
+
 @media (prefers-color-scheme: light) {
   [data-theme="auto"] {
     color-scheme: light;
@@ -399,6 +409,16 @@ body {
 
   [data-theme="auto"] .modern-scroll {
     scrollbar-color: rgb(15 23 42 / 20%) transparent;
+  }
+
+  [data-theme="auto"] .chat-history-active {
+    border-color: #93c5fd;
+    background-color: #dbeafe;
+    box-shadow: inset 2px 0 0 #0284c7;
+  }
+
+  [data-theme="auto"] .chat-history-active-title {
+    color: #075985;
   }
 
 }

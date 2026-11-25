@@ -1830,7 +1830,7 @@ export default function ChatWindow() {
                         key={h.id}
                         className={`group flex items-center gap-1 rounded-lg border p-1 transition-[color,background-color,border-color,opacity] duration-200 ${
                           h.id === activeHistoryId
-                            ? "border-sky-400/25 bg-sky-400/[0.08] shadow-[inset_2px_0_0_0_rgba(56,189,248,0.8)]"
+                            ? "chat-history-active border-sky-400/25 bg-sky-400/[0.08] shadow-[inset_2px_0_0_0_rgba(56,189,248,0.8)]"
                             : `border-white/[0.06] bg-white/[0.025] hover:border-white/10 hover:bg-white/[0.05] ${
                                 loadingHistoryIds.size > 0 && !loadingHistoryIds.has(h.id)
                                   ? "opacity-40"
@@ -1844,7 +1844,7 @@ export default function ChatWindow() {
                           aria-current={h.id === activeHistoryId ? "page" : undefined}
                           className="min-w-0 flex-1 px-2 py-1.5 text-left"
                         >
-                          <span className={`flex min-w-0 items-center gap-1.5 truncate text-xs ${h.id === activeHistoryId ? "font-medium text-sky-100" : "text-neutral-200 group-hover:text-white"}`}>
+                          <span className={`flex min-w-0 items-center gap-1.5 truncate text-xs ${h.id === activeHistoryId ? "chat-history-active-title font-medium text-sky-100" : "text-neutral-200 group-hover:text-white"}`}>
                             {loadingHistoryIds.has(h.id) && (
                               <span
                                 role="status"
