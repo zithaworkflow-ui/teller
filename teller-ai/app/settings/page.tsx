@@ -1,7 +1,8 @@
 "use client";
 
-import { useAppAuth } from "@/components/Auth0Provider";
 import Image from "next/image";
+import Link from "next/link";
+import { useAppAuth } from "@/components/Auth0Provider";
 import { CalendarDays, Check, LoaderCircle, Mail, Upload } from "lucide-react";
 import { useEffect, useState, type ChangeEvent, type FormEvent } from "react";
 import PayPalUpgradeButton from "@/components/PayPalUpgradeButton";
@@ -498,15 +499,23 @@ export default function AccountSettingsPage() {
   }
 
   return (
-    <main className="min-h-screen bg-neutral-950 px-6 py-10 text-white">
-      <div className="relative mx-auto max-w-3xl rounded-2xl border border-neutral-800 bg-neutral-900 p-8 shadow-xl">
+    <main className="relative min-h-screen bg-neutral-950 px-6 py-10 text-white">
+      <Link
+        href="/"
+        aria-label="Teller AI home"
+        title="Teller AI home"
+        className="absolute right-6 top-6 flex h-12 w-16 items-center justify-center rounded-full border border-neutral-700 bg-neutral-900 shadow-lg transition hover:border-sky-400/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
+      >
         <Image
           src="/t-emblem.png"
-          alt="Teller T emblem"
-          width={862}
-          height={640}
-          className="absolute right-8 top-8 h-8 w-8 object-contain"
+          alt=""
+          aria-hidden="true"
+          width={42}
+          height={32}
+          className="h-8 w-11 object-contain"
         />
+      </Link>
+      <div className="mx-auto max-w-3xl rounded-2xl border border-neutral-800 bg-neutral-900 p-8 shadow-xl">
         <div className="mb-6 flex items-center gap-4">
           <img
             src={accountProfile.picture}
