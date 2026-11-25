@@ -174,7 +174,11 @@ type GeneratedImage = {
 
 type Theme = "auto" | "dark" | "light";
 type VoiceReplySegment = { text: string; duration: number };
-const TELLER_GREETING = "Hello! What can I do for you today?";
+function getTellerGreeting(userName?: string) {
+  return userName
+    ? `Hello, ${userName}! What can I do for you today?`
+    : "Hello! What can I do for you today?";
+}
 
 type SpeechRecognitionResultLike = { 0: { transcript: string } };
 type SpeechRecognitionEventLike = { results: ArrayLike<SpeechRecognitionResultLike> };
@@ -231,14 +235,14 @@ function getVoiceContent(message: Message) {
     : message.content;
 }
 
-function getModeGreeting(agent: AgentMode) {
+function getModeGreeting(agent: AgentMode, userName?: string) {
   if (agent === "cyber") {
     return "Hi, I’m CyberMail. Connect your Google account to search and summarize Gmail, review your calendar, create email drafts, and propose calendar events. I’ll ask before creating drafts or events.";
   }
   if (agent === "maps") {
     return "Hi, I’m CyberMaps. Ask me to find a place or get directions, for example “directions from Cape Town Station to Table Mountain by transit.” The live map will update alongside our chat.";
   }
-  return TELLER_GREETING;
+  return getTellerGreeting(userName);
 }
 
 function isImageGenerationPrompt(prompt: string) {
@@ -560,10 +564,14 @@ function FormattedMessage({ content, onCopyCode, showCodeCopy = true }: { conten
 }
 
 export default function ChatWindow() {
+  const { user, isAuthenticated, isLoading: isAuthLoading, loginWithRedirect, logout, getAccessTokenSilently } = useAppAuth();
+  const [profileName, setProfileName] = useState(
+    () => [user?.given_name, user?.family_name].filter(Boolean).join(" ") || user?.name || "",
+  );
   const [messages, setMessages] = useState<Message[]>([
     {
       role: "assistant",
-      content: TELLER_GREETING,
+      content: getTellerGreeting(),
     },
   ]);
 
@@ -643,7 +651,6 @@ export default function ChatWindow() {
   } | null>(null);
   const voiceReplyAudioUrlRef = useRef<string | null>(null);
   const [isMounted, setIsMounted] = useState(false);
-  const { user, isAuthenticated, isLoading: isAuthLoading, loginWithRedirect, logout, getAccessTokenSilently } = useAppAuth();
   const authReady = isMounted && !isAuthLoading;
   const hasSession = authReady && isAuthenticated;
   const [monthlyChatCount, setMonthlyChatCount] = useState(0);
@@ -678,6 +685,23 @@ export default function ChatWindow() {
 
   useEffect(() => {
     setIsMounted(true);
+  }, []);
+
+  useEffect(() => {
+    const handleProfileUpdate = (event: Event) => {
+      const detail = (event as CustomEvent<{ firstName?: string; surname?: string }>).detail;
+      const name = [detail?.firstName, detail?.surname].filter(Boolean).join(" ");
+      if (!name) return;
+      setProfileName(name);
+      setMessages((previous) => (
+        previous.length === 1 && previous[0].role === "assistant" &&
+        /^Hello(?:, .+)?! What can I do for you today\?$/.test(previous[0].content)
+          ? [{ ...previous[0], content: getTellerGreeting(name) }]
+          : previous
+      ));
+    };
+    window.addEventListener("teller:profile-updated", handleProfileUpdate);
+    return () => window.removeEventListener("teller:profile-updated", handleProfileUpdate);
   }, []);
 
   useEffect(() => () => {
@@ -769,14 +793,16 @@ export default function ChatWindow() {
       setMessages([
         {
           role: "assistant",
-          content: TELLER_GREETING,
+          content: getTellerGreeting(
+            [user?.given_name, user?.family_name].filter(Boolean).join(" ") || user?.name,
+          ),
         },
       ]);
       if (!isAuthenticated) {
         const initialMessages: Message[] = [
           {
             role: "assistant",
-            content: TELLER_GREETING,
+            content: getTellerGreeting(),
           },
         ];
         const initial: HistoryItem = {
@@ -796,10 +822,23 @@ export default function ChatWindow() {
       }
 
       getAccessTokenSilently()
-        .then((token) => fetch("/api/account/history", { headers: { Authorization: `Bearer ${token}` } }))
-        .then(async (response) => {
-          if (!response.ok) throw new Error("Could not load remote history.");
-          const data = await response.json();
+        .then(async (token) => {
+          const headers = { Authorization: `Bearer ${token}` };
+          const [historyResponse, accountResponse] = await Promise.all([
+            fetch("/api/account/history", { headers }),
+            fetch("/api/account", { headers, cache: "no-store" }),
+          ]);
+          const account = accountResponse.ok ? await accountResponse.json() : null;
+          const accountName = [
+            typeof account?.firstName === "string" ? account.firstName : user?.given_name,
+            typeof account?.surname === "string" ? account.surname : user?.family_name,
+          ].filter(Boolean).join(" ") || user?.name || "";
+          if (accountName) setProfileName(accountName);
+          return { historyResponse, accountName };
+        })
+        .then(async ({ historyResponse, accountName }) => {
+          if (!historyResponse.ok) throw new Error("Could not load remote history.");
+          const data = await historyResponse.json();
           if (!Array.isArray(data.history)) throw new Error("Invalid remote history.");
           const remoteHistories = data.history as HistoryItem[];
           if (remoteHistories.length) {
@@ -812,7 +851,7 @@ export default function ChatWindow() {
             const initialMessages: Message[] = [
               {
                 role: "assistant",
-                content: TELLER_GREETING,
+                content: getTellerGreeting(accountName),
               },
             ];
             const initial: HistoryItem = {
@@ -837,7 +876,7 @@ export default function ChatWindow() {
         });
       // eslint-disable-next-line no-empty
     } catch (e) {}
-  }, [getAccessTokenSilently, isAuthLoading, isAuthenticated]);
+  }, [getAccessTokenSilently, isAuthLoading, isAuthenticated, user?.family_name, user?.given_name, user?.name]);
 
   useEffect(() => {
     if (isAuthLoading || !isAuthenticated) return;
@@ -849,6 +888,10 @@ export default function ChatWindow() {
       .then((response) => (response.ok ? response.json() : null))
       .then((account) => {
         if (!account) return;
+        const accountName = [account.firstName, account.surname]
+          .filter((name: unknown): name is string => typeof name === "string" && name.length > 0)
+          .join(" ");
+        if (accountName) setProfileName(accountName);
         if (typeof account.picture === "string") setProfilePicture(account.picture);
         setPlanName(account.plan);
         setUsageLimit(account.usageLimit);
@@ -886,7 +929,7 @@ export default function ChatWindow() {
       setMessages(modeHistory.messages);
     } else {
       const id = Date.now().toString();
-      const initialMessages: Message[] = [{ role: "assistant", content: getModeGreeting(requestedAgent) }];
+      const initialMessages: Message[] = [{ role: "assistant", content: getModeGreeting(requestedAgent, profileName) }];
       const newHistory: HistoryItem = {
         id,
         title: "New chat",
@@ -988,7 +1031,7 @@ export default function ChatWindow() {
     const initialMessages: Message[] = [
       {
         role: "assistant",
-        content: getModeGreeting(agent),
+        content: getModeGreeting(agent, profileName),
       },
     ];
     const newItem: HistoryItem = {
@@ -1030,7 +1073,7 @@ export default function ChatWindow() {
           const newId = Date.now().toString();
           const initialMessages: Message[] = [{
             role: "assistant",
-            content: getModeGreeting(activeAgent),
+            content: getModeGreeting(activeAgent, profileName),
             file: null,
           }];
           const newHist: HistoryItem = {

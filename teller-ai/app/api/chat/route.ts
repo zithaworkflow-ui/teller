@@ -180,6 +180,7 @@ function extractParallelImageResults(value: unknown): ParallelImageSearchResult[
 async function runParallelResearch(
   messages: ParallelChatMessage[],
   country: string | undefined,
+  userName: string | undefined,
   userMemory: string[],
   onSites: (sites: string[]) => void,
 ) {
@@ -208,6 +209,7 @@ async function runParallelResearch(
       try {
         assistant = await callTellerAIWithTools(toolMessages, parallelTools, {
           country,
+          userName,
           userMemory,
           maxTokens,
           compactPrompt,
@@ -307,6 +309,7 @@ function createResearchResponse(
   messages: ParallelChatMessage[],
   userId: string | null,
   country: string | undefined,
+  userName: string | undefined,
   userMemory: string[],
 ) {
   const encoder = new TextEncoder();
@@ -319,7 +322,7 @@ function createResearchResponse(
         }
       };
       try {
-        const result = await runParallelResearch(messages, country, userMemory, (sites) => {
+        const result = await runParallelResearch(messages, country, userName, userMemory, (sites) => {
           send({ type: "sites", sites });
         });
         const { reply: answer, choices } = extractAnswerChoices(result.reply);
@@ -453,10 +456,12 @@ export async function POST(req: Request) {
       imageDataUrl = await prepareImageForAnalysis(generatedImage.mediaData);
     }
     let country: string | undefined;
+    let userName: string | undefined;
     if (userId && userId !== LOCAL_TEST_USER_ID) {
       try {
         const profile = await getUserAccountData(userId);
         country = COUNTRY_OPTIONS.find((option) => option.code === profile.country)?.name;
+        userName = [profile.firstName, profile.surname].filter(Boolean).join(" ") || undefined;
       } catch (error) {
         console.error("Could not load country context for chat:", error);
       }
@@ -474,6 +479,7 @@ export async function POST(req: Request) {
         try {
           reply = await callTellerAI(clarificationMessages, {
             country,
+            userName,
             userMemory,
             maxTokens,
             systemPrompt: [
@@ -521,6 +527,7 @@ export async function POST(req: Request) {
         try {
           reply = await callTellerAI(messages, {
             country,
+            userName,
             userMemory,
             maxTokens,
             compactPrompt,
@@ -546,7 +553,7 @@ export async function POST(req: Request) {
         }
       }
     } else {
-      return createResearchResponse(messages, userId, country, userMemory);
+      return createResearchResponse(messages, userId, country, userName, userMemory);
     }
     if (reply === null) {
       throw lastCreditError || new Error("Teller AI could not fit this request within the available credits.");

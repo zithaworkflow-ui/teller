@@ -10,6 +10,7 @@ import type {
 import { useRouter } from "next/navigation";
 import { createContext, useCallback, useContext, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 import GoogleLoginDialog from "@/components/GoogleLoginDialog";
+import ProfileSetupDialog from "@/components/ProfileSetupDialog";
 import { LOCAL_TEST_ACCESS_TOKEN, LOCAL_TEST_USER_ID } from "@/lib/local-test-auth";
 
 const domain = process.env.NEXT_PUBLIC_AUTH0_DOMAIN;
@@ -93,6 +94,12 @@ function Auth0AppAuthBridge({ children }: { children: ReactNode }) {
   return (
     <AppAuthContext.Provider value={value}>
       {children}
+      <ProfileSetupDialog
+        user={auth.user}
+        isAuthenticated={auth.isAuthenticated}
+        isLoading={auth.isLoading}
+        getAccessTokenSilently={auth.getAccessTokenSilently}
+      />
       <GoogleLoginDialog
         isOpen={loginOptions !== null}
         onClose={() => setLoginOptions(null)}
@@ -143,6 +150,12 @@ function LocalTestAuthProvider({ children }: { children: ReactNode }) {
   return (
     <AppAuthContext.Provider value={value}>
       {children}
+      <ProfileSetupDialog
+        user={isAuthenticated ? localTestUser : undefined}
+        isAuthenticated={isAuthenticated}
+        isLoading={false}
+        getAccessTokenSilently={getAccessTokenSilently}
+      />
       <GoogleLoginDialog
         isOpen={loginOptions !== null}
         onClose={() => setLoginOptions(null)}
