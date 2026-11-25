@@ -2238,10 +2238,12 @@ export default function ChatWindow() {
               <div
                 key={index}
                 className={`min-w-0 max-w-[85%] overflow-hidden rounded-[2rem] p-4 [overflow-wrap:anywhere] transition-[transform,box-shadow,background-color] duration-300 ease-out hover:scale-[1.015] active:scale-[0.99] motion-reduce:transition-none ${
+                  message.role === "assistant" ? "chat-assistant-message" : ""
+                } ${
                   message.role === "user"
                     ? "ml-auto bg-blue-600 shadow-md shadow-blue-950/30"
                     : index === latestAssistantMessageIndex
-                      ? "mr-auto bg-gradient-to-br from-neutral-700 to-neutral-800 shadow-lg shadow-sky-950/30 ring-1 ring-white/10"
+                      ? "mr-auto chat-assistant-active bg-gradient-to-br from-neutral-700 to-neutral-800 shadow-lg shadow-sky-950/30 ring-1 ring-white/10"
                       : "mr-auto bg-neutral-800"
                 }`}
               >
