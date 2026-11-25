@@ -6,6 +6,7 @@ import Image from "next/image";
 import {
   ArrowUp,
   ArrowLeft,
+  Camera,
   CalendarDays,
   Check,
   Download,
@@ -29,7 +30,7 @@ import {
 import katex from "katex";
 import "katex/dist/katex.min.css";
 import metallicTEmblem from "../Futuristic Metallic T Emblem.png";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import { encodeAudioChunksToWav } from "@/lib/recording-audio";
 import { getExplicitMemoryRequest } from "@/lib/user-memory";
 import { formatTextForSpeech, splitTextForSpeech } from "@/lib/voice-format";
@@ -578,6 +579,9 @@ export default function ChatWindow() {
   const [imageEditTarget, setImageEditTarget] = useState<Message | null>(null);
   const [imageEditPrompt, setImageEditPrompt] = useState("");
   const promptInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
+  const [isAttachmentMenuOpen, setIsAttachmentMenuOpen] = useState(false);
   const [speechError, setSpeechError] = useState("");
   const [isRecording, setIsRecording] = useState(false);
   const [isStartingRecording, setIsStartingRecording] = useState(false);
@@ -1164,7 +1168,10 @@ export default function ChatWindow() {
             .slice(-12),
         }),
       });
-      if (!response.ok) return;
+      if (!response.ok) {
+        titleGeneratedPromptCountsRef.current.delete(historyId);
+        return;
+      }
 
       const data = await response.json() as { title?: unknown };
       if (typeof data.title !== "string") return;
@@ -1173,7 +1180,15 @@ export default function ChatWindow() {
         .replace(/\s+/g, " ")
         .slice(0, 60)
         .trim();
-      if (!title) return;
+      const metaTitlePattern =
+        /^(?:title(?:\s+generation)?|conversation(?:\s+title)?|chat(?:\s+title)?|here(?:['’]s|\s+is)\s+(?:a\s+)?(?:title|conversation)|i(?:['’]d)?\s+(?:title|suggest)|generated?\s+title)\b/i;
+      const hasMetaTitleText =
+        metaTitlePattern.test(title) ||
+        /\b(?:title generation instruction|title generation prompt)\b/i.test(title);
+      if (!title || hasMetaTitleText) {
+        titleGeneratedPromptCountsRef.current.delete(historyId);
+        return;
+      }
 
       setHistories((previous) => previous.map((history) => (
         history.id === historyId
@@ -1181,6 +1196,7 @@ export default function ChatWindow() {
           : history
       )));
     } catch (error) {
+      titleGeneratedPromptCountsRef.current.delete(historyId);
       console.error("Could not generate conversation title:", error);
     }
   }
@@ -1921,6 +1937,38 @@ export default function ChatWindow() {
     await sendMessage(prompt, target);
   }
 
+  function handleFileSelection(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0];
+    if (!file) return;
+    if (file.type.startsWith("image/")) {
+      if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+        setSpeechError("Upload a JPEG, PNG, or WebP image.");
+        event.currentTarget.value = "";
+        return;
+      }
+      if (file.size > 3 * 1024 * 1024) {
+        setSpeechError("Keep uploaded images under 3 MB.");
+        event.currentTarget.value = "";
+        return;
+      }
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result;
+      if (typeof dataUrl !== "string") {
+        setSpeechError("The selected file could not be read.");
+        return;
+      }
+      setPendingFile({ name: file.name, type: file.type, size: file.size, dataUrl });
+      setSpeechError("");
+    };
+    reader.onerror = () => setSpeechError("The selected file could not be read.");
+    reader.readAsDataURL(file);
+    event.currentTarget.value = "";
+    setIsAttachmentMenuOpen(false);
+  }
+
   const modeHistories = histories.filter((history) => (
     (history.agent === "cyber" || history.agent === "maps" ? history.agent : "teller") === activeAgent
   ));
@@ -1985,7 +2033,7 @@ export default function ChatWindow() {
               }`}
             >
               <Images size={18} aria-hidden="true" />
-              History
+              File history
             </button>
             {/* file attach control moved to the input area (left of prompt) */}
 
@@ -2260,7 +2308,7 @@ export default function ChatWindow() {
             <div className="mx-auto max-w-6xl">
               <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <h1 id="generated-image-history-heading" className="text-2xl font-semibold text-white">Generated image history</h1>
+                  <h1 id="generated-image-history-heading" className="text-2xl font-semibold text-white">File history</h1>
                   <p className="mt-1 text-sm text-neutral-400">Images you have generated with Teller AI.</p>
                 </div>
                 <button
@@ -2655,6 +2703,31 @@ export default function ChatWindow() {
               </div>
             ))}
 
+            {activeAgent === "teller" &&
+              messages.every((message) => message.role !== "user") &&
+              messages.length > 0 && (
+                <section aria-label="Example prompts" className="rounded-2xl border border-sky-400/15 bg-sky-400/[0.03] p-4">
+                  <p className="mb-3 text-xs font-medium text-neutral-400">Try asking Teller AI</p>
+                  <div className="flex flex-wrap gap-2">
+                    {[
+                      "Explain how black holes form in simple terms",
+                      "Help me plan a relaxing weekend in Cape Town",
+                      "Show me a picture of the Orion Nebula",
+                    ].map((prompt) => (
+                      <button
+                        key={prompt}
+                        type="button"
+                        onClick={() => void sendMessage(prompt)}
+                        disabled={loading || monthlyChatCount >= usageLimit}
+                        className="rounded-full border border-neutral-600 bg-neutral-900/70 px-3 py-2 text-left text-xs leading-5 text-neutral-200 transition hover:border-sky-400/50 hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {prompt}
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              )}
+
             {loading && activeAgent === "teller" && researchSites.length > 0 && (
               <div
                 className="mr-auto mb-2 flex max-w-[85%] flex-wrap items-center gap-2"
@@ -2776,34 +2849,62 @@ export default function ChatWindow() {
                     </div>
                   )}
                 </div>
-                <label className="order-1 flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-full text-neutral-400 transition-colors hover:bg-neutral-800 hover:text-white" title="Attach file">
-                  <input type="file" className="hidden" onChange={async (e) => {
-                    const f = e.target.files?.[0];
-                    if (!f) return;
-                    if (f.type.startsWith("image/")) {
-                      if (!["image/jpeg", "image/png", "image/webp"].includes(f.type)) {
-                        setSpeechError("Upload a JPEG, PNG, or WebP image.");
-                        e.target.value = "";
-                        return;
-                      }
-                      if (f.size > 3 * 1024 * 1024) {
-                        setSpeechError("Keep uploaded images under 3 MB.");
-                        e.target.value = "";
-                        return;
-                      }
-                    }
-                    const reader = new FileReader();
-                    reader.onload = () => {
-                      const dataUrl = reader.result as string;
-                      setPendingFile({ name: f.name, type: f.type, size: f.size, dataUrl });
-                      setSpeechError("");
-                    };
-                    reader.onerror = () => setSpeechError("The selected file could not be read.");
-                    reader.readAsDataURL(f);
-                    e.target.value = "";
-                  }} />
-                  <Paperclip size={20} aria-hidden="true" />
-                </label>
+                <div className="relative order-1 shrink-0 self-center">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    className="hidden"
+                    onChange={handleFileSelection}
+                  />
+                  <input
+                    ref={cameraInputRef}
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    className="hidden"
+                    onChange={handleFileSelection}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setIsAttachmentMenuOpen((open) => !open)}
+                    disabled={loading}
+                    className="flex h-11 w-11 items-center justify-center rounded-full text-neutral-400 transition-colors hover:bg-neutral-800 hover:text-white disabled:opacity-50"
+                    aria-label="Add attachment"
+                    aria-haspopup="menu"
+                    aria-expanded={isAttachmentMenuOpen}
+                    title="Add attachment"
+                  >
+                    <Paperclip size={20} aria-hidden="true" />
+                  </button>
+                  {isAttachmentMenuOpen && (
+                    <div className="absolute bottom-12 left-0 z-30 w-44 rounded-xl border border-neutral-700 bg-neutral-900 p-1 shadow-xl" role="menu" aria-label="Add attachment">
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setIsAttachmentMenuOpen(false);
+                          fileInputRef.current?.click();
+                        }}
+                        className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-neutral-200 transition hover:bg-neutral-800"
+                      >
+                        <Paperclip size={16} aria-hidden="true" />
+                        Upload a file
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setIsAttachmentMenuOpen(false);
+                          cameraInputRef.current?.click();
+                        }}
+                        className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-neutral-200 transition hover:bg-neutral-800"
+                      >
+                        <Camera size={16} aria-hidden="true" />
+                        Take a photo
+                      </button>
+                    </div>
+                  )}
+                </div>
 
                 {isRecording || isTranscribing ? (
                   <div

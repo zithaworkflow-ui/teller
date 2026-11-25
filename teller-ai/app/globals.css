@@ -201,13 +201,13 @@ body {
 }
 
 [data-theme="light"] .chat-image-history-button {
-  color: #1d4ed8;
+  color: #000000;
 }
 
 [data-theme="light"] .chat-image-history-button:hover,
 [data-theme="light"] .chat-image-history-button[aria-current="page"] {
   background-color: #dbeafe;
-  color: #1d4ed8;
+  color: #000000;
 }
 
 [data-theme="light"] .chat-new-button {
@@ -295,13 +295,13 @@ body {
   }
 
   [data-theme="auto"] .chat-image-history-button {
-    color: #1d4ed8;
+    color: #000000;
   }
 
   [data-theme="auto"] .chat-image-history-button:hover,
   [data-theme="auto"] .chat-image-history-button[aria-current="page"] {
     background-color: #dbeafe;
-    color: #1d4ed8;
+    color: #000000;
   }
 
   [data-theme="auto"] .chat-new-button {

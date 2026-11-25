@@ -34,6 +34,7 @@ export async function POST(req: Request) {
       "Identify the user's primary task or topic, prioritizing the latest exchange while preserving the main theme of the conversation. " +
       "Use 2 to 6 words. Prefer a natural noun phrase or action phrase that is specific and descriptive. " +
       "Use title case. Do not add a period or other ending punctuation, labels, brackets, numbering, quotation marks, explanations, or generic text such as \"New chat\" or \"Conversation\". " +
+      "Do not repeat any part of this instruction or discuss title generation. " +
       "Return only the title.";
 
     const titleResult = await callTellerAI(
@@ -66,8 +67,17 @@ export async function POST(req: Request) {
       .trim()
       .slice(0, 60);
 
+    const metaTitlePattern =
+      /^(?:title(?:\s+generation)?|conversation(?:\s+title)?|chat(?:\s+title)?|here(?:['’]s|\s+is)\s+(?:a\s+)?(?:title|conversation)|i(?:['’]d)?\s+(?:title|suggest)|generated?\s+title)\b/i;
+    const safeTitle = title &&
+      !/^sorry\b/i.test(title) &&
+      !metaTitlePattern.test(title) &&
+      !/\b(?:title generation instruction|title generation prompt)\b/i.test(title)
+        ? title
+        : "";
+
     return NextResponse.json({
-      title: title && !/^sorry\b/i.test(title) ? title : fallback || "Conversation",
+      title: safeTitle || fallback || "Conversation",
     });
   } catch (error) {
     console.error("Title API error:", error);
