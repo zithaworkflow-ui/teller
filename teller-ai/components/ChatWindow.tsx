@@ -15,6 +15,7 @@ import {
   Paperclip,
   PanelLeftClose,
   PanelLeftOpen,
+  Search,
   Sparkles,
   Sun,
   Moon,
@@ -454,6 +455,8 @@ export default function ChatWindow() {
   const speechTranscriptRef = useRef("");
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isHistoryVisible, setIsHistoryVisible] = useState(true);
+  const [isHistorySearchOpen, setIsHistorySearchOpen] = useState(false);
+  const [historySearchQuery, setHistorySearchQuery] = useState("");
   const [isImageHistoryOpen, setIsImageHistoryOpen] = useState(false);
   const [generatedImages, setGeneratedImages] = useState<GeneratedImage[]>([]);
   const [isGeneratedImagesLoading, setIsGeneratedImagesLoading] = useState(false);
@@ -1266,64 +1269,6 @@ export default function ChatWindow() {
             : {}),
         };
         setMessages([...updatedMessages, assistantMessage]);
-
-        // If the server returned a suggested title, update the active history
-        if (data.title && activeHistoryId) {
-          setHistories((prev) => {
-            const next = prev.slice();
-            const idx = next.findIndex((h) => h.id === activeHistoryId);
-            if (idx !== -1) {
-              next[idx] = {
-                ...next[idx],
-                title: data.title,
-                messages: [...updatedMessages, assistantMessage],
-                updatedAt: Date.now(),
-              };
-              const item = next.splice(idx, 1)[0];
-              next.unshift(item);
-            } else {
-              next.unshift({ id: activeHistoryId, title: data.title, messages: [...updatedMessages, assistantMessage], updatedAt: Date.now() });
-            }
-            return next;
-          });
-        } else if (activeHistoryId && !data.memoryAction) {
-          // If the active history still has the default title, generate one now
-          const current = histories.find((h) => h.id === activeHistoryId);
-          if (current && (!current.title || current.title === "New chat")) {
-            (async () => {
-              try {
-                const res = await fetch("/api/title", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    messages: [
-                      ...updatedMessages.map((msg) => ({
-                        role: msg.role,
-                        content: msg.file
-                          ? `${msg.content || ""}\n[Attachment: ${msg.file.name} (${msg.file.type}; ${msg.file.size} bytes)]`
-                          : msg.content,
-                      })),
-                      { role: "assistant", content: data.reply },
-                    ],
-                  }),
-                });
-                const d = await res.json();
-                if (d.title) {
-                  setHistories((prev) => {
-                    const next = prev.slice();
-                    const idx = next.findIndex((h) => h.id === activeHistoryId);
-                    if (idx !== -1) {
-                      next[idx] = { ...next[idx], title: d.title, messages: [...updatedMessages, assistantMessage], updatedAt: Date.now() };
-                      const item = next.splice(idx, 1)[0];
-                      next.unshift(item);
-                    }
-                    return next;
-                  });
-                }
-              } catch (e) {}
-            })();
-          }
-        }
       } else {
         setMessages([...updatedMessages, { role: "assistant", content: "Sorry, something went wrong.", file: null }]);
       }
@@ -1699,10 +1644,23 @@ export default function ChatWindow() {
   const modeHistories = histories.filter((history) => (
     (history.agent === "cyber" || history.agent === "maps" ? history.agent : "teller") === activeAgent
   ));
+  const normalizedHistorySearchQuery = historySearchQuery.trim().toLocaleLowerCase();
+  const matchingModeHistories = modeHistories.filter((history) => (
+    !normalizedHistorySearchQuery ||
+    history.title.toLocaleLowerCase().includes(normalizedHistorySearchQuery) ||
+    history.messages.some((message) => message.content.toLocaleLowerCase().includes(normalizedHistorySearchQuery))
+  ));
+  const visibleModeHistories = normalizedHistorySearchQuery
+    ? matchingModeHistories
+    : matchingModeHistories.slice(0, 6);
+  const latestAssistantMessageIndex = messages.reduce(
+    (latestIndex, message, index) => message.role === "assistant" ? index : latestIndex,
+    -1,
+  );
 
   return (
     <div data-theme={theme} className="flex h-screen bg-neutral-900 text-white">
-      <aside className={`fixed inset-y-0 left-0 z-40 w-72 transform border-r border-neutral-800 bg-neutral-900 p-4 transition-transform duration-200 md:static md:translate-x-0 ${isHistoryVisible ? 'md:block' : 'md:hidden'} ${isSidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"}`} aria-hidden={!isSidebarOpen && true}>
+      <aside className={`fixed inset-y-0 left-0 z-40 w-72 transform border-r border-neutral-800 bg-neutral-900 p-4 transition-[transform,box-shadow,border-color] duration-300 ease-out hover:border-sky-400/20 hover:shadow-[4px_0_24px_rgba(56,189,248,0.08)] active:scale-[0.995] md:static md:translate-x-0 ${isHistoryVisible ? 'md:block' : 'md:hidden'} ${isSidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"}`} aria-hidden={!isSidebarOpen && true}>
         <div className="flex h-full flex-col">
           <div className="mb-4">
             <h1 className="relative mb-2 flex items-center justify-center text-2xl font-bold">
@@ -1730,7 +1688,38 @@ export default function ChatWindow() {
 
           <div className="min-h-0 flex-1 overflow-y-auto space-y-5 text-sm text-neutral-400 modern-scroll">
             <section aria-labelledby="chat-history-heading">
-              <h2 id="chat-history-heading" className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-neutral-500">Chat history</h2>
+              <div className="mb-2 flex items-center justify-between px-1">
+                <h2 id="chat-history-heading" className="text-[10px] font-semibold uppercase tracking-[0.16em] text-neutral-500">Chat history</h2>
+                <button
+                  type="button"
+                  aria-label={isHistorySearchOpen ? "Close chat history search" : "Search chat history"}
+                  aria-expanded={isHistorySearchOpen}
+                  aria-controls="chat-history-search"
+                  title={isHistorySearchOpen ? "Close search" : "Search chats"}
+                  onClick={() => {
+                    if (isHistorySearchOpen) {
+                      setIsHistorySearchOpen(false);
+                      setHistorySearchQuery("");
+                    } else {
+                      setIsHistorySearchOpen(true);
+                    }
+                  }}
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-md text-neutral-400 transition duration-200 hover:scale-110 hover:bg-neutral-800 hover:text-white active:scale-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-400"
+                >
+                  <Search size={15} aria-hidden="true" />
+                </button>
+              </div>
+              {isHistorySearchOpen && (
+                <input
+                  id="chat-history-search"
+                  type="search"
+                  value={historySearchQuery}
+                  onChange={(event) => setHistorySearchQuery(event.target.value)}
+                  placeholder="Search chats and messages"
+                  aria-label="Search chat history"
+                  className="mb-3 w-full rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-2 text-xs text-white placeholder:text-neutral-500 focus:border-sky-400/60 focus:outline-none focus:ring-2 focus:ring-sky-400/20"
+                />
+              )}
               <button
                 type="button"
                 className="chat-new-button mb-3 w-full rounded-lg bg-white px-4 py-2 font-medium text-black transition-colors hover:bg-neutral-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
@@ -1740,9 +1729,13 @@ export default function ChatWindow() {
               </button>
               {hasSession && (
                 <>
-                  {modeHistories.length === 0 && <p className="px-1">No chats yet</p>}
+                  {visibleModeHistories.length === 0 && (
+                    <p className="px-1">
+                      {normalizedHistorySearchQuery ? "No matching chats" : "No chats yet"}
+                    </p>
+                  )}
                   <div className="space-y-1.5">
-                    {modeHistories.slice(0, 6).map((h) => (
+                    {visibleModeHistories.map((h) => (
                       <div
                         key={h.id}
                         className={`group flex items-center gap-1 rounded-lg border p-1 transition-colors ${
@@ -2131,7 +2124,16 @@ export default function ChatWindow() {
             )}
             {messages.map((message, index) => (
               message.role === "user" && message.file ? null :
-              <div key={index} className={`min-w-0 max-w-[85%] overflow-hidden rounded-xl p-4 [overflow-wrap:anywhere] ${message.role === "user" ? "ml-auto bg-blue-600" : "mr-auto bg-neutral-800"}`}>
+              <div
+                key={index}
+                className={`min-w-0 max-w-[85%] overflow-hidden rounded-[2rem] p-4 [overflow-wrap:anywhere] transition-[transform,box-shadow,background-color] duration-300 ease-out hover:scale-[1.015] active:scale-[0.99] motion-reduce:transition-none ${
+                  message.role === "user"
+                    ? "ml-auto bg-blue-600 shadow-md shadow-blue-950/30"
+                    : index === latestAssistantMessageIndex
+                      ? "mr-auto bg-gradient-to-br from-neutral-700 to-neutral-800 shadow-lg shadow-sky-950/30 ring-1 ring-white/10"
+                      : "mr-auto bg-neutral-800"
+                }`}
+              >
                 <div className="min-w-0 max-w-full text-sm leading-7 [overflow-wrap:anywhere]">
                   <FormattedMessage content={message.content} showCodeCopy={message.role === "assistant"} onCopyCode={(code) => void copyText(code, index)} />
                 </div>

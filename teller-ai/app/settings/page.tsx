@@ -33,6 +33,7 @@ export default function AccountSettingsPage() {
   const [aiResponsesEnabled, setAiResponsesEnabled] = useState(true);
   const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
   const [saveMessage, setSaveMessage] = useState("");
+  const [saveError, setSaveError] = useState("");
   const [firstName, setFirstName] = useState(user?.given_name || user?.name?.split(" ")[0] || "");
   const [surname, setSurname] = useState(user?.family_name || user?.name?.split(" ").slice(1).join(" ") || "");
   const [country, setCountry] = useState("");
@@ -43,9 +44,7 @@ export default function AccountSettingsPage() {
   const [isUploadingProfilePicture, setIsUploadingProfilePicture] = useState(false);
   const [profilePictureMessage, setProfilePictureMessage] = useState("");
   const [profilePictureError, setProfilePictureError] = useState("");
-  const [profileMessage, setProfileMessage] = useState("");
-  const [profileError, setProfileError] = useState("");
-  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [isUploadingVoiceSample, setIsUploadingVoiceSample] = useState(false);
   const [isPreparingVoiceSample, setIsPreparingVoiceSample] = useState(false);
   const [voiceSampleMessage, setVoiceSampleMessage] = useState("");
@@ -289,33 +288,44 @@ export default function AccountSettingsPage() {
     };
   }, [getAccessTokenSilently, isAuthenticated, isLoading]);
 
-  async function saveProfile() {
-    setIsSavingProfile(true);
-    setProfileMessage("");
-    setProfileError("");
-
+  async function saveAllSettings() {
+    setIsSavingSettings(true);
+    setSaveMessage("");
+    setSaveError("");
     try {
-      const token = await getAccessTokenSilently();
-      const response = await fetch("/api/account", {
-        method: "PATCH",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ firstName, surname, country, phoneCountry, phoneNumber }),
-      });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.detail || result.error || "Could not update profile.");
-      setFirstName(result.firstName);
-      setSurname(result.surname);
-      setCountry(result.country);
-      setPhoneCountry(result.phoneCountry);
-      setPhoneNumber(result.phoneNumber);
-      setProfileMessage("Profile saved");
+      if (isAuthenticated) {
+        const token = await getAccessTokenSilently();
+        const response = await fetch("/api/account", {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ firstName, surname, country, phoneCountry, phoneNumber }),
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.detail || result.error || "Could not update profile.");
+        setFirstName(result.firstName);
+        setSurname(result.surname);
+        setCountry(result.country);
+        setPhoneCountry(result.phoneCountry);
+        setPhoneNumber(result.phoneNumber);
+      }
+
+      localStorage.setItem(
+        preferencesKey,
+        JSON.stringify({ aiResponsesEnabled, autoScrollEnabled }),
+      );
+      setSaveMessage("Settings saved. Closing...");
+      window.setTimeout(() => {
+        window.close();
+        if (!window.closed) window.location.replace("/chat");
+      }, 200);
     } catch (error) {
-      setProfileError(error instanceof Error ? error.message : "Could not update profile.");
+      console.error("Could not save settings:", error);
+      setSaveError(error instanceof Error ? error.message : "Could not save settings. Please try again.");
     } finally {
-      setIsSavingProfile(false);
+      setIsSavingSettings(false);
     }
   }
 
@@ -424,15 +434,6 @@ export default function AccountSettingsPage() {
     } catch (error) {
       setMemoryError(error instanceof Error ? error.message : "Could not delete saved memories.");
     }
-  }
-
-  function saveSettings() {
-    localStorage.setItem(
-      preferencesKey,
-      JSON.stringify({ aiResponsesEnabled, autoScrollEnabled }),
-    );
-    setSaveMessage("Settings saved");
-    window.setTimeout(() => setSaveMessage(""), 2500);
   }
 
   async function connectGoogleAccount() {
@@ -550,7 +551,7 @@ export default function AccountSettingsPage() {
                     autoComplete="given-name"
                     value={firstName}
                     onChange={(event) => setFirstName(event.target.value)}
-                    disabled={!isAuthenticated || isSavingProfile}
+                    disabled={!isAuthenticated || isSavingSettings}
                     className="h-9 w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 text-white outline-none focus:border-white disabled:opacity-60"
                   />
                 </label>
@@ -560,7 +561,7 @@ export default function AccountSettingsPage() {
                     autoComplete="family-name"
                     value={surname}
                     onChange={(event) => setSurname(event.target.value)}
-                    disabled={!isAuthenticated || isSavingProfile}
+                    disabled={!isAuthenticated || isSavingSettings}
                     className="h-9 w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 text-white outline-none focus:border-white disabled:opacity-60"
                   />
                 </label>
@@ -578,7 +579,7 @@ export default function AccountSettingsPage() {
                     const selectedCountry = COUNTRY_OPTIONS.find((option) => option.code === event.target.value);
                     if (selectedCountry) setPhoneCountry(selectedCountry.code);
                   }}
-                  disabled={!isAuthenticated || isSavingProfile}
+                  disabled={!isAuthenticated || isSavingSettings}
                   className="h-9 w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 text-white outline-none focus:border-white disabled:opacity-60"
                 >
                   <option value="">Select a country</option>
@@ -594,7 +595,7 @@ export default function AccountSettingsPage() {
                     aria-label="Phone country calling code"
                     value={phoneCountry}
                     onChange={(event) => setPhoneCountry(event.target.value)}
-                    disabled={!isAuthenticated || isSavingProfile}
+                    disabled={!isAuthenticated || isSavingSettings}
                     className="h-9 w-36 shrink-0 rounded-md border border-neutral-700 bg-neutral-900 px-2 text-white outline-none focus:border-white disabled:opacity-60"
                   >
                     {PHONE_CODE_OPTIONS.map((option) => (
@@ -609,7 +610,7 @@ export default function AccountSettingsPage() {
                     autoComplete="tel-national"
                     value={phoneNumber}
                     onChange={(event) => setPhoneNumber(event.target.value)}
-                    disabled={!isAuthenticated || isSavingProfile}
+                    disabled={!isAuthenticated || isSavingSettings}
                     placeholder="Phone number"
                     className="h-9 min-w-0 flex-1 rounded-md border border-neutral-700 bg-neutral-900 px-3 text-white outline-none focus:border-white disabled:opacity-60"
                   />
@@ -624,20 +625,6 @@ export default function AccountSettingsPage() {
                 <span className="text-neutral-100">{monthlyChatCount}/{usageLimit}</span>
               </div>
             </div>
-            {isAuthenticated && (
-              <div className="mt-4 flex items-center justify-end gap-3">
-                {profileMessage && <span className="text-sm text-emerald-400">{profileMessage}</span>}
-                {profileError && <span className="text-sm text-red-400">{profileError}</span>}
-                <button
-                  type="button"
-                  onClick={saveProfile}
-                  disabled={isSavingProfile}
-                  className="rounded-lg bg-white px-4 py-2 text-sm font-medium text-black disabled:opacity-60"
-                >
-                  {isSavingProfile ? "Saving..." : "Save profile"}
-                </button>
-              </div>
-            )}
           </section>
 
           <section className="rounded-xl border border-neutral-800 bg-neutral-950 p-5">
@@ -855,12 +842,14 @@ export default function AccountSettingsPage() {
 
           <div className="flex items-center justify-end gap-3 pt-2">
             {saveMessage && <span className="text-sm text-emerald-400">{saveMessage}</span>}
+            {saveError && <span className="text-sm text-rose-400" role="alert">{saveError}</span>}
             <button
               type="button"
-              onClick={saveSettings}
-              className="rounded-lg bg-white px-4 py-2 text-sm font-medium text-black"
+              onClick={() => void saveAllSettings()}
+              disabled={isSavingSettings}
+              className="rounded-lg bg-white px-4 py-2 text-sm font-medium text-black disabled:cursor-not-allowed disabled:opacity-60"
             >
-              Save
+              {isSavingSettings ? "Saving..." : "Save all"}
             </button>
             {isAuthenticated ? (
               <button
