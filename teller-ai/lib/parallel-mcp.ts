@@ -5,6 +5,7 @@ const ENABLED_PARALLEL_TOOLS = new Set([
   "web_fetch",
   "web_research",
   "web_decisions",
+  "image_search",
 ]);
 
 type ParallelTool = {

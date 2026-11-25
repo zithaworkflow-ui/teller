@@ -373,7 +373,6 @@ body {
 [data-theme="light"] .chat-assistant-message {
   background-color: #eff6ff;
   background-image: none;
-  border: 1px solid #bfdbfe;
   color: #172554;
 }
 
@@ -435,7 +434,6 @@ body {
   [data-theme="auto"] .chat-assistant-message {
     background-color: #eff6ff;
     background-image: none;
-    border: 1px solid #bfdbfe;
     color: #172554;
   }
 

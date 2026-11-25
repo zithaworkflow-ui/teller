@@ -8,11 +8,13 @@ import {
   ArrowLeft,
   CalendarDays,
   Check,
+  Download,
   Images,
   LoaderCircle,
   MapPinned,
   Mail,
   Mic,
+  Pencil,
   Paperclip,
   PanelLeftClose,
   PanelLeftOpen,
@@ -40,6 +42,7 @@ type Message = {
   imageUrl?: string;
   imageStoragePath?: string;
   imageDescription?: string;
+  imageSearchResults?: SearchedImageResult[];
   file?: {
     name: string;
     type: string;
@@ -47,6 +50,23 @@ type Message = {
     dataUrl: string;
     storagePath?: string;
   } | null;
+};
+
+type ChatResponsePayload = {
+  reply?: string;
+  usageCount?: number | null;
+  choices?: unknown;
+  imageSearchResults?: unknown;
+  error?: string;
+  memoryAction?: boolean;
+};
+
+type SearchedImageResult = {
+  title: string;
+  imageUrl: string;
+  sourcePageUrl: string;
+  width?: number;
+  height?: number;
 };
 
 type AgentMode = "teller" | "cyber" | "maps";
@@ -220,6 +240,11 @@ function getModeGreeting(agent: AgentMode) {
   return TELLER_GREETING;
 }
 
+function isImageSearchRequest(prompt: string) {
+  return /\b(?:find|search(?:\s+for)?|look\s+for|browse|source|pull\s+up)\b[\s\S]{0,60}\b(?:images?|pictures?|photos?|photographs?)\b/i.test(prompt) ||
+    /\bshow\s+(?:me\s+)?(?:(?:some|a\s+few|the|an?)\s+)?(?:images?|pictures?|photos?|photographs?)\b/i.test(prompt);
+}
+
 function isImageGenerationPrompt(prompt: string) {
   return /\b(?:pic|picture|image|photo|artwork|illustration)\b/i.test(prompt) &&
     /\b(?:make|create|generate|draw|design|show|of|for|with|turn)\b/i.test(prompt);
@@ -381,6 +406,90 @@ function renderMathBlock(block: string, key: string): ReactNode {
   );
 }
 
+function getImageDownloadFilename(imageUrl: string, index: number) {
+  const mediaType = imageUrl.match(/^data:(image\/[a-z0-9.+-]+)/i)?.[1]?.toLowerCase();
+  const extension = mediaType?.slice("image/".length) || "png";
+  return `teller-generated-${index + 1}.${extension === "jpeg" ? "jpg" : extension}`;
+}
+
+function isSearchedImageResult(value: unknown): value is SearchedImageResult {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const image = value as Record<string, unknown>;
+  if (
+    typeof image.title !== "string" ||
+    typeof image.imageUrl !== "string" ||
+    typeof image.sourcePageUrl !== "string"
+  ) return false;
+
+  const isHttpUrl = (candidate: string) => {
+    try {
+      const url = new URL(candidate);
+      return (url.protocol === "https:" || url.protocol === "http:") &&
+        Boolean(url.hostname) &&
+        !url.username &&
+        !url.password;
+    } catch {
+      return false;
+    }
+  };
+  return isHttpUrl(image.imageUrl) && isHttpUrl(image.sourcePageUrl);
+}
+
+async function readResearchResponse(
+  response: Response,
+  onSites: (sites: string[]) => void,
+): Promise<ChatResponsePayload> {
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error("The research response stream is unavailable.");
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let payload: ChatResponsePayload | null = null;
+  const consumeEvent = (eventText: string) => {
+    const data = eventText
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).trimStart())
+      .join("\n");
+    if (!data) return;
+
+    const parsed: unknown = JSON.parse(data);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      throw new Error("The research response stream is invalid.");
+    }
+    const event = parsed as Record<string, unknown>;
+    if (event.type === "sites" && Array.isArray(event.sites)) {
+      onSites(event.sites.filter((site): site is string => typeof site === "string"));
+    } else if (event.type === "complete") {
+      if (typeof event.payload !== "object" || event.payload === null || Array.isArray(event.payload)) {
+        throw new Error("The research response did not include a valid reply.");
+      }
+      payload = event.payload as ChatResponsePayload;
+    } else if (event.type === "error") {
+      throw new Error(typeof event.message === "string" ? event.message : "Web research failed.");
+    }
+  };
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      buffer += decoder.decode(value, { stream: !done });
+      const events = buffer.split(/\r?\n\r?\n/);
+      buffer = events.pop() || "";
+      events.forEach(consumeEvent);
+      if (done) {
+        if (buffer.trim()) consumeEvent(buffer);
+        break;
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  if (!payload) throw new Error("The research response ended before the reply was ready.");
+  return payload;
+}
+
 function FormattedMessage({ content, onCopyCode, showCodeCopy = true }: { content: string; onCopyCode: (code: string) => void; showCodeCopy?: boolean }) {
   const blocks = content.split(/```([\w+-]*)\n?([\s\S]*?)```/g);
   const output: ReactNode[] = [];
@@ -397,15 +506,44 @@ function FormattedMessage({ content, onCopyCode, showCodeCopy = true }: { conten
           return;
         }
 
-        segment.split("\n").forEach((line, lineIndex) => {
+        const lines = segment.split("\n");
+        let paragraphLines: Array<{ line: string; index: number }> = [];
+        const flushParagraph = () => {
+          if (!paragraphLines.length) return;
+          const firstLineIndex = paragraphLines[0].index;
+          output.push(
+            <p key={`${index}-${segmentIndex}-paragraph-${firstLineIndex}`} className="my-2 first:mt-0 last:mb-0">
+              {paragraphLines.map(({ line, index: lineIndex }, paragraphIndex) => (
+                <span key={lineIndex}>
+                  {renderInlineMarkdown(line)}
+                  {paragraphIndex < paragraphLines.length - 1 && <br />}
+                </span>
+              ))}
+            </p>,
+          );
+          paragraphLines = [];
+        };
+
+        lines.forEach((line, lineIndex) => {
           const heading = line.match(/^(#{1,3})\s+(.+)$/);
           const bullet = line.match(/^\s*[-*]\s+(.+)$/);
           const numbered = line.match(/^\s*\d+\.\s+(.+)$/);
-          if (heading) output.push(<h3 key={`${index}-${segmentIndex}-${lineIndex}`} className="mt-3 text-base font-semibold text-white">{renderInlineMarkdown(heading[2])}</h3>);
-          else if (bullet) output.push(<div key={`${index}-${segmentIndex}-${lineIndex}`} className="pl-4 before:mr-2 before:content-['•']">{renderInlineMarkdown(bullet[1])}</div>);
-          else if (numbered) output.push(<div key={`${index}-${segmentIndex}-${lineIndex}`} className="pl-4">{renderInlineMarkdown(line.trim())}</div>);
-          else output.push(<span key={`${index}-${segmentIndex}-${lineIndex}`}>{renderInlineMarkdown(line)}{lineIndex < segment.split("\n").length - 1 && <br />}</span>);
+          if (!line.trim()) {
+            flushParagraph();
+          } else if (heading) {
+            flushParagraph();
+            output.push(<h3 key={`${index}-${segmentIndex}-${lineIndex}`} className="mt-3 text-base font-semibold text-white">{renderInlineMarkdown(heading[2])}</h3>);
+          } else if (bullet) {
+            flushParagraph();
+            output.push(<div key={`${index}-${segmentIndex}-${lineIndex}`} className="pl-4 before:mr-2 before:content-['•']">{renderInlineMarkdown(bullet[1])}</div>);
+          } else if (numbered) {
+            flushParagraph();
+            output.push(<div key={`${index}-${segmentIndex}-${lineIndex}`} className="pl-4">{renderInlineMarkdown(line.trim())}</div>);
+          } else {
+            paragraphLines.push({ line, index: lineIndex });
+          }
         });
+        flushParagraph();
       });
     }
     if (index + 1 < blocks.length) {
@@ -442,6 +580,8 @@ export default function ChatWindow() {
   const agentQueryHandledRef = useRef(false);
 
   const [input, setInput] = useState("");
+  const [imageEditTarget, setImageEditTarget] = useState<Message | null>(null);
+  const [imageEditPrompt, setImageEditPrompt] = useState("");
   const promptInputRef = useRef<HTMLTextAreaElement | null>(null);
   const [speechError, setSpeechError] = useState("");
   const [isRecording, setIsRecording] = useState(false);
@@ -449,9 +589,11 @@ export default function ChatWindow() {
   const [isTranscribing, setIsTranscribing] = useState(false);
   const loadingHistoryIdsRef = useRef(new Set<string>());
   const [loadingHistoryIds, setLoadingHistoryIds] = useState<Set<string>>(() => new Set());
+  const [researchSitesByHistory, setResearchSitesByHistory] = useState<Record<string, string[]>>({});
   const generatingImageHistoryIdsRef = useRef(new Set<string>());
   const [generatingImageHistoryIds, setGeneratingImageHistoryIds] = useState<Set<string>>(() => new Set());
   const loading = activeHistoryId !== null && loadingHistoryIds.has(activeHistoryId);
+  const researchSites = activeHistoryId ? researchSitesByHistory[activeHistoryId] || [] : [];
   const isGeneratingImage = activeHistoryId !== null && generatingImageHistoryIds.has(activeHistoryId);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const isRecordingRef = useRef(false);
@@ -1020,14 +1162,15 @@ export default function ChatWindow() {
     )));
   }
 
-  async function sendMessage(messageText = input) {
+  async function sendMessage(messageText = input, imageEditReference?: Message) {
     if (!messageText.trim()) return;
     if (monthlyChatCount >= usageLimit && !getExplicitMemoryRequest(messageText)) return;
     const requestHistoryId = activeHistoryIdRef.current;
     if (!requestHistoryId) return;
     if (requestHistoryId && loadingHistoryIdsRef.current.has(requestHistoryId)) return;
+    setResearchSitesByHistory((previous) => ({ ...previous, [requestHistoryId]: [] }));
     const requestAgent = activeAgent;
-    const requestFile = pendingFile;
+    const requestFile = imageEditReference ? null : pendingFile;
 
     const userMessage: Message = {
       role: "user",
@@ -1088,6 +1231,7 @@ export default function ChatWindow() {
       }
 
       const hasImageUpload = Boolean(requestFile?.type.startsWith("image/"));
+      const imageSearchRequest = isImageSearchRequest(userMessage.content);
       const currentVisualDirection = extractVisualDetails(userMessage.content);
       const previousAssistantVisualDirection = updatedMessages
         .slice(0, -1)
@@ -1098,7 +1242,7 @@ export default function ChatWindow() {
         ? extractVisualDetails(previousAssistantVisualDirection)
         : null;
       const previousGeneratedImage = !requestFile
-        ? updatedMessages.slice(0, -1).reverse().find((message) => (
+        ? imageEditReference || updatedMessages.slice(0, -1).reverse().find((message) => (
             message.role === "assistant" &&
             Boolean(message.imageUrl) &&
             message.imageStoragePath?.startsWith("postgres:")
@@ -1119,6 +1263,7 @@ export default function ChatWindow() {
         userMessage.content.length > 4000
       );
       if (!explicitImageIntent &&
+        !imageSearchRequest &&
         requestAgent === "teller" &&
         isAuthenticated &&
         userMessage.content.length <= 4000 &&
@@ -1185,7 +1330,8 @@ export default function ChatWindow() {
             (classifiedImageIntent || isImageModificationPrompt(userMessage.content)))
         : !requestFile && (
             explicitImageIntent ||
-            (!imageIntentClassificationFailed &&
+            (!imageSearchRequest &&
+              !imageIntentClassificationFailed &&
               (classifiedImageIntent ||
                 localImageIntent ||
                 (useImageIntentHeuristic && isImageGenerationPrompt(userMessage.content)))
@@ -1295,11 +1441,18 @@ export default function ChatWindow() {
         }),
       });
 
-      const data = await response.json();
+      const data = response.headers.get("content-type")?.includes("text/event-stream")
+        ? await readResearchResponse(response, (sites) => {
+            setResearchSitesByHistory((previous) => ({
+              ...previous,
+              [requestHistoryId]: sites,
+            }));
+          })
+        : await response.json() as ChatResponsePayload;
       if (!response.ok) throw new Error(data.error || "Teller AI could not complete that request.");
 
-      const hasServerUsageCount = Number.isInteger(data.usageCount);
-      if (hasServerUsageCount) {
+      const hasServerUsageCount = typeof data.usageCount === "number" && Number.isInteger(data.usageCount);
+      if (typeof data.usageCount === "number" && Number.isInteger(data.usageCount)) {
         setMonthlyChatCount(data.usageCount);
       }
 
@@ -1316,6 +1469,13 @@ export default function ChatWindow() {
                 choices: data.choices.filter(
                   (choice: unknown): choice is string => typeof choice === "string",
                 ).slice(0, 3),
+              }
+            : {}),
+          ...(Array.isArray(data.imageSearchResults)
+            ? {
+                imageSearchResults: data.imageSearchResults
+                  .filter(isSearchedImageResult)
+                  .slice(0, 12),
               }
             : {}),
         };
@@ -1341,6 +1501,12 @@ export default function ChatWindow() {
     } finally {
       setHistoryLoading(requestHistoryId, false);
       setHistoryGeneratingImage(requestHistoryId, false);
+      setResearchSitesByHistory((previous) => {
+        if (!(requestHistoryId in previous)) return previous;
+        const next = { ...previous };
+        delete next[requestHistoryId];
+        return next;
+      });
     }
   }
 
@@ -1701,6 +1867,15 @@ export default function ChatWindow() {
     setInput(message.content);
     setPendingFile(message.file || null);
     window.setTimeout(() => document.querySelector<HTMLInputElement>("input[placeholder='Ask Teller AI anything...']")?.focus(), 0);
+  }
+
+  async function submitImageEdit() {
+    if (!imageEditTarget || !imageEditPrompt.trim() || monthlyChatCount >= usageLimit) return;
+    const target = imageEditTarget;
+    const prompt = `Edit this image: ${imageEditPrompt.trim()}`;
+    setImageEditTarget(null);
+    setImageEditPrompt("");
+    await sendMessage(prompt, target);
   }
 
   const modeHistories = histories.filter((history) => (
@@ -2254,7 +2429,7 @@ export default function ChatWindow() {
                   message.role === "user"
                     ? "ml-auto bg-blue-600 shadow-md shadow-blue-950/30"
                     : index === latestAssistantMessageIndex
-                      ? "mr-auto chat-assistant-active bg-gradient-to-br from-neutral-700 to-neutral-800 shadow-lg shadow-sky-950/30 ring-1 ring-white/10"
+                      ? "mr-auto chat-assistant-active bg-gradient-to-br from-neutral-700 to-neutral-800 shadow-lg shadow-sky-950/30"
                       : "mr-auto bg-neutral-800"
                 }`}
               >
@@ -2289,6 +2464,33 @@ export default function ChatWindow() {
                       alt={message.imageDescription || "Generated image"}
                       className="mt-3 max-h-[min(70vh,640px)] max-w-full rounded-md object-contain"
                     />
+                    {message.role === "assistant" && (
+                      <div className="mt-3 flex items-center gap-2">
+                        <a
+                          href={message.imageUrl}
+                          download={getImageDownloadFilename(message.imageUrl, index)}
+                          className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-neutral-300 transition hover:bg-white/10 hover:text-white"
+                        >
+                          <Download size={17} aria-hidden="true" />
+                          Download
+                        </a>
+                        {message.imageStoragePath?.startsWith("postgres:") && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setImageEditTarget(message);
+                              setImageEditPrompt("");
+                            }}
+                            className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-neutral-300 transition hover:bg-white/10 hover:text-white"
+                            aria-label="Edit image"
+                            title="Edit image"
+                          >
+                            <Pencil size={17} aria-hidden="true" />
+                            Edit
+                          </button>
+                        )}
+                      </div>
+                    )}
                     {message.imageDescription && (
                       <p className="mt-2 text-sm leading-6 text-neutral-300">
                         {message.imageDescription}
@@ -2296,6 +2498,36 @@ export default function ChatWindow() {
                     )}
                   </>
                 )}
+                {message.imageSearchResults?.length ? (
+                  <section className="mt-4" aria-label="Image search results">
+                    <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-neutral-400">
+                      Images from the web
+                    </h3>
+                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                      {message.imageSearchResults.map((image) => (
+                        <a
+                          key={image.imageUrl}
+                          href={image.sourcePageUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="group min-w-0 overflow-hidden rounded-xl bg-neutral-900/70 transition hover:bg-neutral-800"
+                          title={`View source: ${image.title}`}
+                        >
+                          <img
+                            src={image.imageUrl}
+                            alt={image.title}
+                            loading="lazy"
+                            referrerPolicy="no-referrer"
+                            className="aspect-[4/3] w-full object-cover transition group-hover:scale-[1.02]"
+                          />
+                          <span className="block truncate px-2.5 py-2 text-xs text-neutral-300">
+                            {image.title}
+                          </span>
+                        </a>
+                      ))}
+                    </div>
+                  </section>
+                ) : null}
                 {voiceReplyPlayback?.index === index &&
                   voiceReplyPlayback.historyId === activeHistoryId &&
                   voiceReplyPlayback.content === getVoiceContent(message) && (
@@ -2304,7 +2536,7 @@ export default function ChatWindow() {
                       {voiceReplyPlayback.segment}
                     </p>
                   )}
-                <div className="mt-3 flex gap-2 border-t border-white/10 pt-2 opacity-70">
+                <div className={`mt-3 flex gap-2 pt-2 opacity-70 ${message.role === "assistant" ? "" : "border-t border-white/10"}`}>
                   {message.role === "assistant" ? (
                     <>
                       <button type="button" onClick={() => void copyText(message.content, index)} className="rounded px-1 text-xl leading-none text-neutral-300 hover:text-white" aria-label={copiedMessage === index ? "Copied" : "Copy message"} title={copiedMessage === index ? "Copied" : "Copy message"}>{copiedMessage === index ? "✓" : "⧉"}</button>
@@ -2380,6 +2612,36 @@ export default function ChatWindow() {
               </div>
             ))}
 
+            {loading && activeAgent === "teller" && researchSites.length > 0 && (
+              <div
+                className="mr-auto mb-2 flex max-w-[85%] flex-wrap items-center gap-2"
+                role="status"
+                aria-label="Websites being researched"
+              >
+                <span className="text-xs text-neutral-400">Researching</span>
+                {researchSites.map((site) => (
+                  <span
+                    key={site}
+                    title={site}
+                    className="inline-flex max-w-48 items-center gap-1.5 rounded-full bg-neutral-800/80 px-2 py-1 text-[11px] text-neutral-300"
+                  >
+                    <img
+                      src={`https://www.google.com/s2/favicons?domain=${encodeURIComponent(site)}&sz=32`}
+                      alt=""
+                      width={16}
+                      height={16}
+                      loading="lazy"
+                      referrerPolicy="no-referrer"
+                      className="h-4 w-4 shrink-0 rounded-sm"
+                      onError={(event) => {
+                        event.currentTarget.hidden = true;
+                      }}
+                    />
+                    <span className="truncate">{site}</span>
+                  </span>
+                ))}
+              </div>
+            )}
             {loading && (
               <div
                 className="mr-auto flex max-w-[85%] items-center gap-3 rounded-xl bg-neutral-800 p-4 [overflow-wrap:anywhere]"
@@ -2587,6 +2849,75 @@ export default function ChatWindow() {
           </>
         )}
       </main>
+      {imageEditTarget && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/85 p-4 backdrop-blur-sm">
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="image-edit-dialog-title"
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                setImageEditTarget(null);
+                setImageEditPrompt("");
+              }
+            }}
+            className="flex max-h-[94vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-white/10 bg-neutral-900 shadow-2xl"
+          >
+            <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+              <h2 id="image-edit-dialog-title" className="text-sm font-semibold text-white">Edit image</h2>
+              <button
+                type="button"
+                onClick={() => {
+                  setImageEditTarget(null);
+                  setImageEditPrompt("");
+                }}
+                className="flex h-9 w-9 items-center justify-center rounded-full text-neutral-300 transition hover:bg-white/10 hover:text-white"
+                aria-label="Close image editor"
+                title="Close"
+              >
+                <X size={18} aria-hidden="true" />
+              </button>
+            </div>
+            <div className="min-h-0 overflow-auto bg-black/20 p-3 sm:p-5">
+              <img
+                src={imageEditTarget.imageUrl}
+                alt={imageEditTarget.imageDescription || "Image selected for editing"}
+                className="mx-auto max-h-[min(68vh,720px)] max-w-full object-contain"
+              />
+            </div>
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                void submitImageEdit();
+              }}
+              className="border-t border-white/10 p-4"
+            >
+              <label htmlFor="image-edit-prompt" className="mb-2 block text-xs font-medium text-neutral-300">
+                Describe the changes you want
+              </label>
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <textarea
+                  id="image-edit-prompt"
+                  autoFocus
+                  rows={2}
+                  value={imageEditPrompt}
+                  onChange={(event) => setImageEditPrompt(event.target.value)}
+                  placeholder="What would you like to change?"
+                  className="min-h-12 min-w-0 flex-1 resize-y rounded-xl border border-neutral-700 bg-neutral-950 px-4 py-3 text-sm text-white outline-none placeholder:text-neutral-500 focus:border-sky-400"
+                />
+                <button
+                  type="submit"
+                  disabled={loading || monthlyChatCount >= usageLimit || !imageEditPrompt.trim()}
+                  className="inline-flex h-12 shrink-0 items-center justify-center gap-2 rounded-xl bg-blue-500 px-5 text-sm font-semibold text-white transition hover:bg-blue-400 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Pencil size={16} aria-hidden="true" />
+                  Generate edit
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
     </div>
   );
 }
