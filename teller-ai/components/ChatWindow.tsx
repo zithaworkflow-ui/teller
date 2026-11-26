@@ -245,19 +245,27 @@ function getModeGreeting(agent: AgentMode, userName?: string) {
   return getTellerGreeting(userName);
 }
 
+const IMAGE_ARTIFACT_PATTERN = /\b(?:pic|picture|image|photo|photograph|artwork|illustration|drawing|painting|logo|icon|avatar|poster|banner|wallpaper|diagram|graphic|thumbnail|cover art)\b/i;
+
 function isImageGenerationPrompt(prompt: string) {
-  return /\b(?:pic|picture|image|photo|artwork|illustration)\b/i.test(prompt) &&
-    /\b(?:make|create|generate|draw|design|show|of|for|with|turn)\b/i.test(prompt);
+  const generationIntent = /\b(?:make|create|generate|draw|design|show|produce|render|paint|illustrate|want|need)\b/i;
+  const asksToDrawSubject = /\b(?:draw|paint|illustrate)\s+(?:me\s+)?(?:a|an)\s+\w+/i.test(prompt);
+  return (IMAGE_ARTIFACT_PATTERN.test(prompt) || asksToDrawSubject) && generationIntent.test(prompt);
 }
 
 function isExplicitImageGenerationRequest(prompt: string) {
   const asksForPrompt = /\b(?:write|draft|compose|improve|refine|suggest)\b[\s\S]{0,60}\bprompt\b/i.test(prompt) ||
-    /\b(?:create|generate)\s+(?:me\s+)?(?:an?\s+)?prompt\b/i.test(prompt);
+    /\b(?:create|generate|design|make)\s+(?:me\s+)?(?:an?\s+)?(?:image\s+)?prompt\b/i.test(prompt);
   const asksHowTo = /\b(?:how to|how do i|how can i)\b/i.test(prompt);
+  const generationAction = /\b(?:create|generate|draw|design|make|produce|render|paint|illustrate)\b/i;
+  const asksToDrawSubject = /\b(?:draw|paint|illustrate)\s+(?:me\s+)?(?:a|an)\s+\w+/i.test(prompt);
+  const requestsVisual = /\b(?:i want|i need|i would like|i'd like)\b[\s\S]{0,50}\b(?:image|picture|photo|photograph|artwork|illustration|drawing|painting|logo|icon|avatar|poster|banner|wallpaper|diagram|graphic|thumbnail|cover art)\b/i.test(prompt) ||
+    /\b(?:show|give)\s+me\b[\s\S]{0,35}\b(?:image|picture|photo|photograph|artwork|illustration|drawing|painting)\b[\s\S]{0,30}\bof\b/i.test(prompt);
   return !asksForPrompt &&
     !asksHowTo &&
-    /\b(?:create|generate|draw|design|make|produce|render)\b/i.test(prompt) &&
-    /\b(?:image|picture|photo|photograph|artwork|illustration|drawing|painting)\b/i.test(prompt);
+    ((generationAction.test(prompt) && IMAGE_ARTIFACT_PATTERN.test(prompt)) ||
+      asksToDrawSubject ||
+      requestsVisual);
 }
 
 function extractVisualDetails(content: string) {
@@ -1429,15 +1437,14 @@ export default function ChatWindow() {
       );
       const shouldGenerateImage = hasImageUpload
         ? explicitImageIntent ||
-          (!imageIntentClassificationFailed &&
-            (classifiedImageIntent || isImageModificationPrompt(userMessage.content)))
+          isImageModificationPrompt(userMessage.content) ||
+          (!imageIntentClassificationFailed && classifiedImageIntent)
         : !requestFile && (
             explicitImageIntent ||
-            (!imageIntentClassificationFailed &&
-              (classifiedImageIntent ||
-                localImageIntent ||
-                (useImageIntentHeuristic && isImageGenerationPrompt(userMessage.content)))
-            )
+            localImageIntent ||
+            (!imageIntentClassificationFailed && classifiedImageIntent) ||
+            ((useImageIntentHeuristic || imageIntentClassificationFailed) &&
+              isImageGenerationPrompt(userMessage.content))
           );
 
       if (shouldGenerateImage) {

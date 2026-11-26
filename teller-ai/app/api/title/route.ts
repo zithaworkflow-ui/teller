@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { callTellerAI } from "@/lib/ai";
+import { NVIDIA_KIMI_K3_1_PRO_MODEL } from "@/lib/nvidia-ai";
 
 export async function POST(req: Request) {
   try {
@@ -42,6 +43,7 @@ export async function POST(req: Request) {
       {
         maxTokens: 256,
         compactPrompt: true,
+        model: process.env.NVIDIA_TITLE_MODEL?.trim() || NVIDIA_KIMI_K3_1_PRO_MODEL,
         systemPrompt:
           "You are a precise conversation-title generator. Use the full exchange to infer the user's central intent, topic, and desired outcome. " +
           "Prefer specific entities and outcomes over vague summaries. " +

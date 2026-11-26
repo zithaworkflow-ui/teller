@@ -7,6 +7,7 @@ export function hasNvidiaChatProvider() {
 async function callNvidiaCompletion<T>(
   requestBody: Record<string, unknown>,
   config: ReturnType<typeof getNvidiaAIConfig>,
+  modelOverride?: string,
 ): Promise<T> {
   const response = await fetch(config.apiBaseUrl, {
     method: "POST",
@@ -14,7 +15,7 @@ async function callNvidiaCompletion<T>(
       "Content-Type": "application/json",
       Authorization: `Bearer ${config.apiKey}`,
     },
-    body: JSON.stringify({ ...requestBody, model: config.model }),
+    body: JSON.stringify({ ...requestBody, model: modelOverride?.trim() || config.model }),
     cache: "no-store",
   });
 
@@ -30,12 +31,14 @@ async function callNvidiaCompletion<T>(
 
 export async function callNvidiaChatCompletion<T = unknown>(
   requestBody: Record<string, unknown>,
+  modelOverride?: string,
 ): Promise<T> {
-  return callNvidiaCompletion<T>(requestBody, getNvidiaChatConfig());
+  return callNvidiaCompletion<T>(requestBody, getNvidiaChatConfig(), modelOverride);
 }
 
 export async function callNvidiaModelCompletion<T = unknown>(
   requestBody: Record<string, unknown>,
+  modelOverride?: string,
 ): Promise<T> {
-  return callNvidiaCompletion<T>(requestBody, getNvidiaAIConfig());
+  return callNvidiaCompletion<T>(requestBody, getNvidiaAIConfig(), modelOverride);
 }

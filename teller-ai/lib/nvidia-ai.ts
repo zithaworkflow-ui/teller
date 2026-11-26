@@ -3,6 +3,7 @@ export const NVIDIA_CHAT_COMPLETIONS_URL =
 export const NVIDIA_DEFAULT_MODEL =
   "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning";
 export const NVIDIA_DEFAULT_CHAT_MODEL = "nvidia/nemotron-3.5-bolt-e4b";
+export const NVIDIA_KIMI_K3_1_PRO_MODEL = "moonshotai/kimi-k3.1-pro";
 
 export function getNvidiaAIConfig() {
   const apiKey = process.env.NVIDIA_API_KEY;

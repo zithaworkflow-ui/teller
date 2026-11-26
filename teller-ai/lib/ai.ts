@@ -122,6 +122,7 @@ async function callTellerAICompletion(
     systemPrompt?: string;
     userMemory?: string[];
     tools?: unknown[];
+    model?: string;
   },
 ): Promise<TellerAIMessage> {
   const compactPrompt = options?.compactPrompt ?? false;
@@ -154,7 +155,7 @@ async function callTellerAICompletion(
       ],
       ...(options?.tools ? { tools: options.tools, tool_choice: "auto" } : {}),
       temperature: 0.7,
-  });
+  }, options?.model);
 
   const message = data.choices?.[0]?.message;
   if (!message) throw new Error("The AI service returned an empty response.");
@@ -185,6 +186,7 @@ export async function callTellerAI(
     compactPrompt?: boolean;
     systemPrompt?: string;
     userMemory?: string[];
+    model?: string;
   },
 ) {
   const message = await callTellerAICompletion(messages, options);
