@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import {
   generateImageWithCloudflare,
   isCloudflareImageGenerationConfigured,
-  prepareImageForAnalysis,
 } from "@/lib/cloudflare-image";
 import { MAX_IMAGE_BYTES, parseImageDataUrl } from "@/lib/image-input";
 import { getAuthenticatedUserId } from "@/lib/auth0-auth";
@@ -14,7 +13,6 @@ import {
   saveUserChatMedia,
   getUserAccountData,
 } from "@/lib/postgres";
-import { validateGeneratedImageWithNvidia } from "@/lib/nvidia-image";
 import { getPlanKey, plans } from "@/lib/plans";
 
 export const runtime = "nodejs";
@@ -147,15 +145,6 @@ export async function POST(request: Request) {
     }
 
     const imageBytes = Buffer.from(dataUrl[2], "base64");
-    const referenceBytes = parsedReference?.bytes || storedReference?.bytes;
-    const referenceImageDataUrl = referenceBytes
-      ? await prepareImageForAnalysis(referenceBytes)
-      : undefined;
-    const imageDescription = await validateGeneratedImageWithNvidia(
-      prompt,
-      image.imageUrl,
-      referenceImageDataUrl,
-    );
     const mediaId = await saveUserChatMedia(
       userId,
       typeof body.historyId === "string" ? body.historyId.slice(0, 100) : "generated",
@@ -168,7 +157,7 @@ export async function POST(request: Request) {
       imageUrl: `data:${dataUrl[1]};base64,${imageBytes.toString("base64")}`,
       imageStoragePath: `postgres:${mediaId}`,
       prompt: image.prompt,
-      imageDescription: imageDescription.slice(0, 600),
+      imageDescription: image.prompt.slice(0, 600),
       imageGenerationCount,
       imageGenerationLimit: plan.imageGenerationLimit,
     });
