@@ -654,7 +654,7 @@ export default function ChatWindow() {
   const [isStartingRecording, setIsStartingRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const loadingHistoryIdsRef = useRef(new Set<string>());
-  const titleGeneratedPromptCountsRef = useRef(new Map<string, number>());
+  const titleGenerationStartedRef = useRef(new Set<string>());
   const [loadingHistoryIds, setLoadingHistoryIds] = useState<Set<string>>(() => new Set());
   const [researchSitesByHistory, setResearchSitesByHistory] = useState<Record<string, string[]>>({});
   const generatingImageHistoryIdsRef = useRef(new Set<string>());
@@ -1283,18 +1283,19 @@ export default function ChatWindow() {
     historyId: string,
     conversationMessages: Message[],
   ) {
-    const userMessages = conversationMessages.filter((message) => message.role === "user");
-    const userMessageCount = userMessages.length;
-    if (userMessageCount < 2) return;
-    const firstPromptTitle = userMessages[0].content.slice(0, 60);
+    const firstUserMessage = conversationMessages.find(
+      (message) => message.role === "user" && message.content.trim(),
+    );
+    if (!firstUserMessage) return;
+    const firstPromptTitle = firstUserMessage.content.slice(0, 60);
     const existingHistory = histories.find((history) => history.id === historyId);
     if (
       existingHistory?.title &&
       existingHistory.title !== "New chat" &&
       existingHistory.title !== firstPromptTitle
     ) return;
-    if (titleGeneratedPromptCountsRef.current.get(historyId) === userMessageCount) return;
-    titleGeneratedPromptCountsRef.current.set(historyId, userMessageCount);
+    if (titleGenerationStartedRef.current.has(historyId)) return;
+    titleGenerationStartedRef.current.add(historyId);
 
     try {
       const token = isAuthenticated ? await getAccessTokenSilently() : null;
@@ -1305,18 +1306,19 @@ export default function ChatWindow() {
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
-          messages: userMessages
-            .slice(0, 2)
-            .map((message) => ({ role: message.role, content: message.content })),
+          messages: [{ role: "user", content: firstUserMessage.content }],
         }),
       });
       if (!response.ok) {
-        titleGeneratedPromptCountsRef.current.delete(historyId);
+        titleGenerationStartedRef.current.delete(historyId);
         return;
       }
 
       const data = await response.json() as { title?: unknown };
-      if (typeof data.title !== "string") return;
+      if (typeof data.title !== "string") {
+        titleGenerationStartedRef.current.delete(historyId);
+        return;
+      }
       const title = data.title
         .replace(/^[\s"*'`–-]+|[\s"*'`–-]+$/g, "")
         .replace(/\s+/g, " ")
@@ -1328,7 +1330,7 @@ export default function ChatWindow() {
         metaTitlePattern.test(title) ||
         /\b(?:title generation instruction|title generation prompt)\b/i.test(title);
       if (!title || hasMetaTitleText) {
-        titleGeneratedPromptCountsRef.current.delete(historyId);
+        titleGenerationStartedRef.current.delete(historyId);
         return;
       }
 
@@ -1338,7 +1340,7 @@ export default function ChatWindow() {
           : history
       )));
     } catch (error) {
-      titleGeneratedPromptCountsRef.current.delete(historyId);
+      titleGenerationStartedRef.current.delete(historyId);
       console.error("Could not generate conversation title:", error);
     }
   }
