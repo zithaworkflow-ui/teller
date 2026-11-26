@@ -174,11 +174,8 @@ type GeneratedImage = {
 
 type Theme = "auto" | "dark" | "light";
 type VoiceReplySegment = { text: string; duration: number };
-function getTellerGreeting(userName?: string) {
-  const firstName = userName?.trim().split(/\s+/)[0];
-  return firstName
-    ? `Hello, ${firstName}! What can I do for you today?`
-    : "Hello! What can I do for you today?";
+function getTellerGreeting() {
+  return "Hello! What can I do for you today?";
 }
 
 type SpeechRecognitionResultLike = { 0: { transcript: string } };
@@ -236,14 +233,14 @@ function getVoiceContent(message: Message) {
     : message.content;
 }
 
-function getModeGreeting(agent: AgentMode, userName?: string) {
+function getModeGreeting(agent: AgentMode) {
   if (agent === "cyber") {
     return "Hi, I’m CyberMail. Connect your Google account to search and summarize Gmail, review your calendar, create email drafts, and propose calendar events. I’ll ask before creating drafts or events.";
   }
   if (agent === "maps") {
     return "Hi, I’m CyberMaps. Ask me to find a place or get directions, for example “directions from Cape Town Station to Table Mountain by transit.” The live map will update alongside our chat.";
   }
-  return getTellerGreeting(userName);
+  return getTellerGreeting();
 }
 
 const IMAGE_ARTIFACT_PATTERN = /\b(?:pic|picture|image|photo|photograph|artwork|illustration|drawing|painting|logo|icon|avatar|poster|banner|wallpaper|diagram|graphic|thumbnail|cover art)\b/i;
@@ -574,11 +571,10 @@ function FormattedMessage({ content, onCopyCode, showCodeCopy = true }: { conten
 
 export default function ChatWindow() {
   const { user, isAuthenticated, isLoading: isAuthLoading, loginWithRedirect, logout, getAccessTokenSilently } = useAppAuth();
-  const greetingName = user?.given_name || user?.name;
   const [messages, setMessages] = useState<Message[]>([
     {
       role: "assistant",
-      content: getTellerGreeting(greetingName),
+      content: getTellerGreeting(),
     },
   ]);
 
@@ -783,14 +779,14 @@ export default function ChatWindow() {
       setMessages([
         {
           role: "assistant",
-          content: getTellerGreeting(greetingName),
+          content: getTellerGreeting(),
         },
       ]);
       if (!isAuthenticated) {
         const initialMessages: Message[] = [
           {
             role: "assistant",
-            content: getTellerGreeting(greetingName),
+            content: getTellerGreeting(),
           },
         ];
         const initial: HistoryItem = {
@@ -830,7 +826,7 @@ export default function ChatWindow() {
             const initialMessages: Message[] = [
               {
                 role: "assistant",
-                content: getTellerGreeting(greetingName),
+                content: getTellerGreeting(),
               },
             ];
             const initial: HistoryItem = {
@@ -855,7 +851,7 @@ export default function ChatWindow() {
         });
       // eslint-disable-next-line no-empty
     } catch (e) {}
-  }, [getAccessTokenSilently, greetingName, isAuthLoading, isAuthenticated]);
+  }, [getAccessTokenSilently, isAuthLoading, isAuthenticated]);
 
   useEffect(() => {
     if (isAuthLoading || !isAuthenticated) return;
@@ -904,7 +900,7 @@ export default function ChatWindow() {
       setMessages(modeHistory.messages);
     } else {
       const id = Date.now().toString();
-      const initialMessages: Message[] = [{ role: "assistant", content: getModeGreeting(requestedAgent, greetingName) }];
+      const initialMessages: Message[] = [{ role: "assistant", content: getModeGreeting(requestedAgent) }];
       const newHistory: HistoryItem = {
         id,
         title: "New chat",
@@ -1006,7 +1002,7 @@ export default function ChatWindow() {
     const initialMessages: Message[] = [
       {
         role: "assistant",
-        content: getModeGreeting(agent, greetingName),
+        content: getModeGreeting(agent),
       },
     ];
     const newItem: HistoryItem = {
@@ -1048,7 +1044,7 @@ export default function ChatWindow() {
           const newId = Date.now().toString();
           const initialMessages: Message[] = [{
             role: "assistant",
-            content: getModeGreeting(activeAgent, greetingName),
+            content: getModeGreeting(activeAgent),
             file: null,
           }];
           const newHist: HistoryItem = {

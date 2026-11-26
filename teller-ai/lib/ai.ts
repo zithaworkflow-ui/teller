@@ -145,9 +145,6 @@ async function callTellerAICompletion(
                 ? `The user's country is ${options.country}; use it when relevant.`
                 : `The authenticated user's country is ${options.country}. When a question depends on location, use this country's laws, services, currency, spelling, units, and local context. Do not force localization when it is irrelevant, and follow a different location if the user explicitly asks about one.`
               : "",
-            options?.userName
-              ? `The authenticated user's name is ${options.userName}. Use their name naturally when greeting them, but do not force it into every reply.`
-              : "",
             options?.systemPrompt || "",
           ].filter(Boolean).join("\n\n"),
         },
