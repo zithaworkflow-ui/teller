@@ -2357,8 +2357,8 @@ export default function ChatWindow() {
               </button>
             )}
             {hasSession && (
-              <div className="mt-3 px-3">
-                <span className="inline-flex items-center rounded-full border border-neutral-300/50 bg-gradient-to-r from-neutral-200 via-neutral-100 to-neutral-300 px-3 py-1 text-xs font-medium text-neutral-900 shadow-sm">
+              <div className="mt-2 flex justify-end px-3">
+                <span className="inline-flex h-6 items-center rounded-md border border-neutral-100/70 bg-gradient-to-r from-neutral-400 via-neutral-100 to-neutral-300 px-2.5 text-[11px] font-semibold leading-none text-neutral-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_0_14px_rgba(212,212,216,0.16)]">
                   {planName}
                 </span>
               </div>
