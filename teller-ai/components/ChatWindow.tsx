@@ -607,6 +607,20 @@ function ProgressiveResponse({ content, children }: { content: string; children:
   );
 }
 
+function NeutronStarLoader() {
+  return (
+    <span className="neutron-star-loader" aria-hidden="true">
+      <svg className="neutron-star-loader__cube" viewBox="0 0 96 96">
+        <path d="M48 8 82 27.5v41L48 88 14 68.5v-41Z M48 8v41m34-21.5L48 49 14 27.5M48 49v39" />
+      </svg>
+      <span className="neutron-star-loader__orbit">
+        <span className="neutron-star-loader__star neutron-star-loader__star--blue" />
+        <span className="neutron-star-loader__star neutron-star-loader__star--violet" />
+      </span>
+    </span>
+  );
+}
+
 export default function ChatWindow() {
   const { user, isAuthenticated, isLoading: isAuthLoading, loginWithRedirect, logout, getAccessTokenSilently } = useAppAuth();
   const [messages, setMessages] = useState<Message[]>([
@@ -617,6 +631,7 @@ export default function ChatWindow() {
     },
   ]);
   const messagesScrollRef = useRef<HTMLDivElement | null>(null);
+  const thinkingStatusRef = useRef<HTMLDivElement | null>(null);
   const autoScrollToThinkingHistoryRef = useRef<string | null>(null);
 
   const [histories, setHistories] = useState<HistoryItem[]>([]);
@@ -647,6 +662,7 @@ export default function ChatWindow() {
   const loading = activeHistoryId !== null && loadingHistoryIds.has(activeHistoryId);
   const researchSites = activeHistoryId ? researchSitesByHistory[activeHistoryId] || [] : [];
   const isGeneratingImage = activeHistoryId !== null && generatingImageHistoryIds.has(activeHistoryId);
+  const isThinking = loading && activeAgent === "teller" && !isGeneratingImage;
   const isRecordingRef = useRef(false);
   const isStartingRecordingRef = useRef(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -747,12 +763,25 @@ export default function ChatWindow() {
       .slice(lastUserMessageIndex + 1)
       .some((message) => message.role === "assistant");
 
-    scrollContainer.scrollTo({
-      top: scrollContainer.scrollHeight,
-      behavior: "smooth",
-    });
+    if (hasFirstResponse || !isThinking) {
+      scrollContainer.scrollTo({
+        top: scrollContainer.scrollHeight,
+        behavior: "smooth",
+      });
+    } else {
+      const thinkingStatus = thinkingStatusRef.current;
+      if (thinkingStatus) {
+        const containerTop = scrollContainer.getBoundingClientRect().top + scrollContainer.clientTop;
+        const thinkingTop = scrollContainer.scrollTop +
+          thinkingStatus.getBoundingClientRect().top - containerTop;
+        scrollContainer.scrollTo({
+          top: Math.max(0, thinkingTop - scrollContainer.clientHeight * 0.35),
+          behavior: "smooth",
+        });
+      }
+    }
     if (hasFirstResponse) autoScrollToThinkingHistoryRef.current = null;
-  }, [activeHistoryId, loading, messages, researchSites.length]);
+  }, [activeAgent, activeHistoryId, isThinking, loading, messages, researchSites.length]);
 
   useEffect(() => {
     setIsMounted(true);
@@ -2328,7 +2357,7 @@ export default function ChatWindow() {
             {hasSession && (
               <div className="mt-3 px-3">
                 <span className="inline-flex items-center rounded-full border border-neutral-300/50 bg-gradient-to-r from-neutral-200 via-neutral-100 to-neutral-300 px-3 py-1 text-xs font-medium text-neutral-900 shadow-sm">
-                  Tier plan · {planName}
+                  {planName}
                 </span>
               </div>
             )}
@@ -2516,7 +2545,7 @@ export default function ChatWindow() {
         ) : (
           <>
         <div ref={messagesScrollRef} className="min-h-0 flex-1 overflow-y-auto p-4 modern-scroll">
-          <div className={`mx-auto min-w-0 space-y-4 ${activeAgent === "maps" ? "max-w-5xl" : "max-w-3xl"}`}>
+          <div className={`mx-auto min-w-0 space-y-4 ${activeAgent === "maps" ? "max-w-5xl" : "max-w-3xl"} ${isThinking ? "pb-[70vh]" : ""}`}>
             {activeAgent === "maps" && (
               <section className="overflow-hidden rounded-2xl border border-sky-500/20 bg-sky-500/[0.04]">
                 <div className="flex flex-wrap items-center justify-between gap-3 border-b border-neutral-800 px-4 py-3">
@@ -2925,24 +2954,31 @@ export default function ChatWindow() {
             )}
             {loading && (
               <div
-                className="mr-auto flex max-w-[85%] items-center gap-3 rounded-xl bg-neutral-800 p-4 [overflow-wrap:anywhere]"
+                ref={isThinking ? thinkingStatusRef : null}
+                className="mr-auto flex min-h-24 w-full max-w-[85%] items-center justify-start py-4 [overflow-wrap:anywhere]"
                 role="status"
+                aria-label={isGeneratingImage
+                  ? "Creating your image"
+                  : activeAgent === "cyber"
+                    ? "CyberMail is working"
+                    : activeAgent === "maps"
+                      ? "CyberMaps is working"
+                      : "Grope is thinking"}
               >
                 {isGeneratingImage ? (
-                  <>
-                    <span className="pixel-loader" aria-hidden="true">
-                      {Array.from({ length: 16 }, (_, index) => (
-                        <span className="pixel-loader__pixel" key={index} />
-                      ))}
-                    </span>
-                    <span>Creating your image...</span>
-                  </>
+                  <span className="pixel-loader pixel-loader--large" aria-hidden="true">
+                    {Array.from({ length: 49 }, (_, index) => (
+                      <span className="pixel-loader__pixel" key={index} />
+                    ))}
+                  </span>
                 ) : (
-                  activeAgent === "cyber"
-                    ? "CyberMail is working..."
-                    : activeAgent === "maps"
-                      ? "CyberMaps is working..."
-                      : "Grope is thinking..."
+                  activeAgent === "teller" ? (
+                    <NeutronStarLoader />
+                  ) : activeAgent === "cyber" ? (
+                    "CyberMail is working..."
+                  ) : (
+                    "CyberMaps is working..."
+                  )
                 )}
               </div>
             )}
