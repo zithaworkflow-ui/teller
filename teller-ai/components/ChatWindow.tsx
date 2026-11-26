@@ -39,7 +39,6 @@ type Message = {
   role: "user" | "assistant";
   content: string;
   choices?: string[];
-  requiresLogin?: boolean;
   pendingAction?: CyberPendingAction;
   imageUrl?: string;
   imageStoragePath?: string;
@@ -175,10 +174,8 @@ type GeneratedImage = {
 
 type Theme = "auto" | "dark" | "light";
 type VoiceReplySegment = { text: string; duration: number };
-function getTellerGreeting(userName?: string) {
-  return userName
-    ? `Hello, ${userName}! What can I do for you today?`
-    : "Hello! What can I do for you today?";
+function getTellerGreeting() {
+  return "Hello! What can I do for you today?";
 }
 
 type SpeechRecognitionResultLike = { 0: { transcript: string } };
@@ -236,14 +233,14 @@ function getVoiceContent(message: Message) {
     : message.content;
 }
 
-function getModeGreeting(agent: AgentMode, userName?: string) {
+function getModeGreeting(agent: AgentMode) {
   if (agent === "cyber") {
     return "Hi, I’m CyberMail. Connect your Google account to search and summarize Gmail, review your calendar, create email drafts, and propose calendar events. I’ll ask before creating drafts or events.";
   }
   if (agent === "maps") {
     return "Hi, I’m CyberMaps. Ask me to find a place or get directions, for example “directions from Cape Town Station to Table Mountain by transit.” The live map will update alongside our chat.";
   }
-  return getTellerGreeting(userName);
+  return getTellerGreeting();
 }
 
 const IMAGE_ARTIFACT_PATTERN = /\b(?:pic|picture|image|photo|photograph|artwork|illustration|drawing|painting|logo|icon|avatar|poster|banner|wallpaper|diagram|graphic|thumbnail|cover art)\b/i;
@@ -574,9 +571,6 @@ function FormattedMessage({ content, onCopyCode, showCodeCopy = true }: { conten
 
 export default function ChatWindow() {
   const { user, isAuthenticated, isLoading: isAuthLoading, loginWithRedirect, logout, getAccessTokenSilently } = useAppAuth();
-  const [profileName, setProfileName] = useState(
-    () => [user?.given_name, user?.family_name].filter(Boolean).join(" ") || user?.name || "",
-  );
   const [messages, setMessages] = useState<Message[]>([
     {
       role: "assistant",
@@ -696,23 +690,6 @@ export default function ChatWindow() {
     setIsMounted(true);
   }, []);
 
-  useEffect(() => {
-    const handleProfileUpdate = (event: Event) => {
-      const detail = (event as CustomEvent<{ firstName?: string; surname?: string }>).detail;
-      const name = [detail?.firstName, detail?.surname].filter(Boolean).join(" ");
-      if (!name) return;
-      setProfileName(name);
-      setMessages((previous) => (
-        previous.length === 1 && previous[0].role === "assistant" &&
-        /^Hello(?:, .+)?! What can I do for you today\?$/.test(previous[0].content)
-          ? [{ ...previous[0], content: getTellerGreeting(name) }]
-          : previous
-      ));
-    };
-    window.addEventListener("teller:profile-updated", handleProfileUpdate);
-    return () => window.removeEventListener("teller:profile-updated", handleProfileUpdate);
-  }, []);
-
   useEffect(() => () => {
     voiceReplyAudioRef.current?.audio.pause();
     if (voiceReplyAudioUrlRef.current) URL.revokeObjectURL(voiceReplyAudioUrlRef.current);
@@ -802,9 +779,7 @@ export default function ChatWindow() {
       setMessages([
         {
           role: "assistant",
-          content: getTellerGreeting(
-            [user?.given_name, user?.family_name].filter(Boolean).join(" ") || user?.name,
-          ),
+          content: getTellerGreeting(),
         },
       ]);
       if (!isAuthenticated) {
@@ -833,19 +808,10 @@ export default function ChatWindow() {
       getAccessTokenSilently()
         .then(async (token) => {
           const headers = { Authorization: `Bearer ${token}` };
-          const [historyResponse, accountResponse] = await Promise.all([
-            fetch("/api/account/history", { headers }),
-            fetch("/api/account", { headers, cache: "no-store" }),
-          ]);
-          const account = accountResponse.ok ? await accountResponse.json() : null;
-          const accountName = [
-            typeof account?.firstName === "string" ? account.firstName : user?.given_name,
-            typeof account?.surname === "string" ? account.surname : user?.family_name,
-          ].filter(Boolean).join(" ") || user?.name || "";
-          if (accountName) setProfileName(accountName);
-          return { historyResponse, accountName };
+          const historyResponse = await fetch("/api/account/history", { headers });
+          return { historyResponse };
         })
-        .then(async ({ historyResponse, accountName }) => {
+        .then(async ({ historyResponse }) => {
           if (!historyResponse.ok) throw new Error("Could not load remote history.");
           const data = await historyResponse.json();
           if (!Array.isArray(data.history)) throw new Error("Invalid remote history.");
@@ -860,7 +826,7 @@ export default function ChatWindow() {
             const initialMessages: Message[] = [
               {
                 role: "assistant",
-                content: getTellerGreeting(accountName),
+                content: getTellerGreeting(),
               },
             ];
             const initial: HistoryItem = {
@@ -885,7 +851,7 @@ export default function ChatWindow() {
         });
       // eslint-disable-next-line no-empty
     } catch (e) {}
-  }, [getAccessTokenSilently, isAuthLoading, isAuthenticated, user?.family_name, user?.given_name, user?.name]);
+  }, [getAccessTokenSilently, isAuthLoading, isAuthenticated]);
 
   useEffect(() => {
     if (isAuthLoading || !isAuthenticated) return;
@@ -897,10 +863,6 @@ export default function ChatWindow() {
       .then((response) => (response.ok ? response.json() : null))
       .then((account) => {
         if (!account) return;
-        const accountName = [account.firstName, account.surname]
-          .filter((name: unknown): name is string => typeof name === "string" && name.length > 0)
-          .join(" ");
-        if (accountName) setProfileName(accountName);
         if (typeof account.picture === "string") setProfilePicture(account.picture);
         setPlanName(account.plan);
         setUsageLimit(account.usageLimit);
@@ -938,7 +900,7 @@ export default function ChatWindow() {
       setMessages(modeHistory.messages);
     } else {
       const id = Date.now().toString();
-      const initialMessages: Message[] = [{ role: "assistant", content: getModeGreeting(requestedAgent, profileName) }];
+      const initialMessages: Message[] = [{ role: "assistant", content: getModeGreeting(requestedAgent) }];
       const newHistory: HistoryItem = {
         id,
         title: "New chat",
@@ -1040,7 +1002,7 @@ export default function ChatWindow() {
     const initialMessages: Message[] = [
       {
         role: "assistant",
-        content: getModeGreeting(agent, profileName),
+        content: getModeGreeting(agent),
       },
     ];
     const newItem: HistoryItem = {
@@ -1082,7 +1044,7 @@ export default function ChatWindow() {
           const newId = Date.now().toString();
           const initialMessages: Message[] = [{
             role: "assistant",
-            content: getModeGreeting(activeAgent, profileName),
+            content: getModeGreeting(activeAgent),
             file: null,
           }];
           const newHist: HistoryItem = {
@@ -1284,7 +1246,7 @@ export default function ChatWindow() {
     if (requestHistoryId && loadingHistoryIdsRef.current.has(requestHistoryId)) return;
     setResearchSitesByHistory((previous) => ({ ...previous, [requestHistoryId]: [] }));
     const requestAgent = activeAgent;
-    const requestFile = imageEditReference ? null : pendingFile;
+    const requestFile = imageEditReference ? null : hasSession ? pendingFile : null;
 
     const userMessage: Message = {
       role: "user",
@@ -1451,8 +1413,7 @@ export default function ChatWindow() {
       if (shouldGenerateImage && !isAuthenticated) {
         const assistantMessage: Message = {
           role: "assistant",
-          content: `Log in to generate images. After logging in, send this prompt again:\n\n${userMessage.content.trim()}`,
-          requiresLogin: true,
+          content: `Log in to generate images, then send this prompt again:\n\n${userMessage.content.trim()}`,
         };
         const nextMessages = [...updatedMessages, assistantMessage];
         if (activeHistoryIdRef.current === requestHistoryId) setMessages(nextMessages);
@@ -1538,7 +1499,6 @@ export default function ChatWindow() {
           "Content-Type": "application/json",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        signal: AbortSignal.timeout(120_000),
         body: JSON.stringify({
           agent: requestAgent,
           clarifyImageIntent: imageIntentClassificationFailed && !explicitImageIntent,
@@ -1728,6 +1688,7 @@ export default function ChatWindow() {
   }
 
   async function startVoiceInput() {
+    if (!hasSession) return;
     if (isRecordingRef.current || isStartingRecordingRef.current) return;
     if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
       setSpeechError("Voice recording is not supported in this browser.");
@@ -1870,7 +1831,7 @@ export default function ChatWindow() {
       mediaRecorderRef.current.stop();
       return;
     }
-    if (loading || isTranscribing) return;
+    if (!hasSession || loading || isTranscribing) return;
     void startVoiceInput();
   }
 
@@ -2612,17 +2573,6 @@ export default function ChatWindow() {
                       </div>
                     </div>
                   ) : null}
-                {message.role === "assistant" &&
-                  message.requiresLogin &&
-                  index === messages.length - 1 && (
-                    <button
-                      type="button"
-                      onClick={() => loginWithRedirect()}
-                      className="mt-4 rounded-md bg-white px-3 py-2 text-sm font-semibold text-neutral-950 hover:bg-neutral-200"
-                    >
-                      Log in to generate image
-                    </button>
-                  )}
                 {message.imageUrl && (
                   <>
                     <img
@@ -2863,8 +2813,7 @@ export default function ChatWindow() {
 
         <div className="sticky bottom-3 z-20 px-3 py-2 sm:px-6 sm:py-3">
           <div className="mx-auto max-w-3xl">
-            {hasSession ? (
-              <div className="rounded-[2rem] border border-neutral-700/80 bg-neutral-900/95 p-2 shadow-[0_16px_48px_rgba(0,0,0,0.45)] backdrop-blur-2xl transition-colors focus-within:border-neutral-500">
+            <div className="rounded-[2rem] border border-neutral-700/80 bg-neutral-900/95 p-2 shadow-[0_16px_48px_rgba(0,0,0,0.45)] backdrop-blur-2xl transition-colors focus-within:border-neutral-500">
                 {pendingFile && (
                   <div className="mb-1 flex min-w-0 items-center gap-2 px-3 pt-1 text-xs text-neutral-300">
                     <Paperclip size={14} aria-hidden="true" />
@@ -2929,6 +2878,7 @@ export default function ChatWindow() {
                     ref={fileInputRef}
                     type="file"
                     className="hidden"
+                    disabled={!hasSession || loading}
                     onChange={handleFileSelection}
                   />
                   <input
@@ -2937,21 +2887,22 @@ export default function ChatWindow() {
                     accept="image/*"
                     capture="environment"
                     className="hidden"
+                    disabled={!hasSession || loading}
                     onChange={handleFileSelection}
                   />
                   <button
                     type="button"
                     onClick={() => setIsAttachmentMenuOpen((open) => !open)}
-                    disabled={loading}
-                    className="flex h-11 w-11 items-center justify-center rounded-full text-neutral-400 transition-colors hover:bg-neutral-800 hover:text-white disabled:opacity-50"
+                    disabled={!hasSession || loading}
+                    className="flex h-11 w-11 items-center justify-center rounded-full text-neutral-400 transition-colors hover:bg-neutral-800 hover:text-white disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-600 disabled:opacity-60"
                     aria-label="Add attachment"
                     aria-haspopup="menu"
                     aria-expanded={isAttachmentMenuOpen}
-                    title="Add attachment"
+                    title={hasSession ? "Add attachment" : "Log in to attach files"}
                   >
                     <Paperclip size={20} aria-hidden="true" />
                   </button>
-                  {isAttachmentMenuOpen && (
+                  {isAttachmentMenuOpen && hasSession && (
                     <div className="absolute bottom-12 left-0 z-30 w-44 rounded-xl border border-neutral-700 bg-neutral-900 p-1 shadow-xl" role="menu" aria-label="Add attachment">
                       <button
                         type="button"
@@ -3027,7 +2978,7 @@ export default function ChatWindow() {
                 <button
                   type="button"
                   onClick={toggleVoiceInput}
-                  disabled={loading || isStartingRecording || isTranscribing}
+                  disabled={(!hasSession && !isRecording) || loading || isStartingRecording || isTranscribing}
                   className={`order-4 flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-colors disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400 ${isRecording ? "bg-red-500 text-white hover:bg-red-400" : "text-neutral-300 hover:bg-neutral-800 hover:text-white"}`}
                   aria-label={isStartingRecording ? "Starting microphone" : isRecording ? "Stop recording" : "Transcribe voice input"}
                   title={isStartingRecording ? "Starting microphone" : isRecording ? "Stop recording" : "Transcribe voice input"}
@@ -3049,14 +3000,7 @@ export default function ChatWindow() {
                 </button>
                 </div>
                 {speechError && <p className="px-3 pt-2 text-xs text-rose-300" role="alert">{speechError}</p>}
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <button type="button" onClick={() => loginWithRedirect()} className="w-full rounded-lg border border-neutral-700 bg-neutral-900 px-4 py-3 text-sm text-neutral-300 hover:bg-neutral-800">
-                  Log in to attach files and send messages
-                </button>
-              </div>
-            )}
+            </div>
             <p className="px-3 pt-2 text-center text-xs text-neutral-500">
               Teller AI can make mistakes, just like ChatGPT. Check important information.{" "}
               {hasSession

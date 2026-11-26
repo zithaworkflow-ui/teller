@@ -201,7 +201,7 @@ async function runParallelResearch(
     if (researchSites.size > 0) onSites([...researchSites]);
   };
 
-  for (let turn = 0; turn < 3; turn += 1) {
+  for (let turn = 0; turn < 5; turn += 1) {
     let assistant: { content?: string | null; tool_calls?: TellerToolCall[] } | null = null;
     let maxTokens: number | undefined;
     let compactPrompt = false;

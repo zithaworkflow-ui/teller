@@ -155,7 +155,6 @@ async function callTellerAICompletion(
       ],
       ...(options?.tools ? { tools: options.tools, tool_choice: "auto" } : {}),
       temperature: 0.7,
-      chat_template_kwargs: { enable_thinking: false },
   }, options?.model);
 
   const message = data.choices?.[0]?.message;

@@ -74,7 +74,6 @@ async function postMcpMessage(
       },
       body: JSON.stringify(body),
       cache: "no-store",
-      signal: AbortSignal.timeout(30_000),
     });
     if (!response.ok && response.status !== 202) {
       const details = (await response.text()).slice(0, 500);
