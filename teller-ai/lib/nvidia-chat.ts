@@ -17,6 +17,7 @@ async function callNvidiaCompletion<T>(
     },
     body: JSON.stringify({ ...requestBody, model: modelOverride?.trim() || config.model }),
     cache: "no-store",
+    signal: AbortSignal.timeout(45_000),
   });
 
   if (!response.ok) {

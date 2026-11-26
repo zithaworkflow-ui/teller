@@ -39,6 +39,7 @@ type Message = {
   role: "user" | "assistant";
   content: string;
   choices?: string[];
+  requiresLogin?: boolean;
   pendingAction?: CyberPendingAction;
   imageUrl?: string;
   imageStoragePath?: string;
@@ -1447,6 +1448,18 @@ export default function ChatWindow() {
               isImageGenerationPrompt(userMessage.content))
           );
 
+      if (shouldGenerateImage && !isAuthenticated) {
+        const assistantMessage: Message = {
+          role: "assistant",
+          content: `Log in to generate images. After logging in, send this prompt again:\n\n${userMessage.content.trim()}`,
+          requiresLogin: true,
+        };
+        const nextMessages = [...updatedMessages, assistantMessage];
+        if (activeHistoryIdRef.current === requestHistoryId) setMessages(nextMessages);
+        updateHistoryMessages(requestHistoryId, nextMessages, { agent: requestAgent });
+        return;
+      }
+
       if (shouldGenerateImage) {
         setHistoryGeneratingImage(requestHistoryId, true);
         const imagePrompt = currentVisualDirection ||
@@ -1525,6 +1538,7 @@ export default function ChatWindow() {
           "Content-Type": "application/json",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
+        signal: AbortSignal.timeout(120_000),
         body: JSON.stringify({
           agent: requestAgent,
           clarifyImageIntent: imageIntentClassificationFailed && !explicitImageIntent,
@@ -2598,6 +2612,17 @@ export default function ChatWindow() {
                       </div>
                     </div>
                   ) : null}
+                {message.role === "assistant" &&
+                  message.requiresLogin &&
+                  index === messages.length - 1 && (
+                    <button
+                      type="button"
+                      onClick={() => loginWithRedirect()}
+                      className="mt-4 rounded-md bg-white px-3 py-2 text-sm font-semibold text-neutral-950 hover:bg-neutral-200"
+                    >
+                      Log in to generate image
+                    </button>
+                  )}
                 {message.imageUrl && (
                   <>
                     <img
