@@ -30,7 +30,7 @@ import {
 import katex from "katex";
 import "katex/dist/katex.min.css";
 import metallicTEmblem from "../Futuristic Metallic T Emblem.png";
-import { useEffect, useRef, useState, type ChangeEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { encodeAudioChunksToWav } from "@/lib/recording-audio";
 import { getExplicitMemoryRequest } from "@/lib/user-memory";
 import { formatTextForSpeech, splitTextForSpeech } from "@/lib/voice-format";
@@ -38,6 +38,7 @@ import { formatTextForSpeech, splitTextForSpeech } from "@/lib/voice-format";
 type Message = {
   role: "user" | "assistant";
   content: string;
+  createdAt?: number;
   choices?: string[];
   pendingAction?: CyberPendingAction;
   imageUrl?: string;
@@ -569,12 +570,50 @@ function FormattedMessage({ content, onCopyCode, showCodeCopy = true }: { conten
   return output;
 }
 
+function ProgressiveResponse({ content, children }: { content: string; children: ReactNode }) {
+  const responseRef = useRef<HTMLDivElement | null>(null);
+  const [visibleHeight, setVisibleHeight] = useState(0);
+
+  useEffect(() => {
+    const response = responseRef.current;
+    if (!response) return;
+
+    setVisibleHeight(0);
+    let revealedHeight = 0;
+    const lineHeight = Number.parseFloat(window.getComputedStyle(response).lineHeight) || 28;
+    const fullHeight = response.scrollHeight;
+    let timeoutId: number;
+
+    const revealNextLines = () => {
+      revealedHeight = Math.min(revealedHeight + lineHeight * 2, fullHeight);
+      setVisibleHeight(revealedHeight);
+      if (revealedHeight < fullHeight) {
+        timeoutId = window.setTimeout(revealNextLines, 400);
+      }
+    };
+
+    timeoutId = window.setTimeout(revealNextLines, 400);
+    return () => window.clearTimeout(timeoutId);
+  }, [content]);
+
+  return (
+    <div
+      ref={responseRef}
+      className="overflow-hidden leading-7 transition-[max-height] duration-400 ease-out motion-reduce:transition-none"
+      style={{ maxHeight: `${visibleHeight}px` }}
+    >
+      {children}
+    </div>
+  );
+}
+
 export default function ChatWindow() {
   const { user, isAuthenticated, isLoading: isAuthLoading, loginWithRedirect, logout, getAccessTokenSilently } = useAppAuth();
   const [messages, setMessages] = useState<Message[]>([
     {
       role: "assistant",
       content: getTellerGreeting(),
+      createdAt: Date.now(),
     },
   ]);
 
@@ -606,7 +645,6 @@ export default function ChatWindow() {
   const loading = activeHistoryId !== null && loadingHistoryIds.has(activeHistoryId);
   const researchSites = activeHistoryId ? researchSitesByHistory[activeHistoryId] || [] : [];
   const isGeneratingImage = activeHistoryId !== null && generatingImageHistoryIds.has(activeHistoryId);
-  const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const isRecordingRef = useRef(false);
   const isStartingRecordingRef = useRef(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -624,6 +662,8 @@ export default function ChatWindow() {
   const [generatedImagesError, setGeneratedImagesError] = useState("");
   const generatedImageUrlsRef = useRef(new Set<string>());
   const generatedImageOffsetRef = useRef(0);
+  const timestampPressTimeoutRef = useRef<number | null>(null);
+  const [visibleTimestampIndex, setVisibleTimestampIndex] = useState<number | null>(null);
   const [pendingFile, setPendingFile] = useState<Message["file"] | null>(null);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>("auto");
@@ -745,9 +785,33 @@ export default function ChatWindow() {
     generatedImageUrlsRef.current.clear();
   }, []);
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, loading]);
+  useEffect(() => () => {
+    if (timestampPressTimeoutRef.current !== null) {
+      window.clearTimeout(timestampPressTimeoutRef.current);
+    }
+  }, []);
+
+  function cancelTimestampPress() {
+    if (timestampPressTimeoutRef.current !== null) {
+      window.clearTimeout(timestampPressTimeoutRef.current);
+      timestampPressTimeoutRef.current = null;
+    }
+  }
+
+  function startTimestampPress(index: number, event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    cancelTimestampPress();
+    setVisibleTimestampIndex(null);
+    timestampPressTimeoutRef.current = window.setTimeout(() => {
+      setVisibleTimestampIndex(index);
+      timestampPressTimeoutRef.current = null;
+    }, 500);
+  }
+
+  function revealTimestamp(index: number) {
+    cancelTimestampPress();
+    setVisibleTimestampIndex(index);
+  }
 
   useEffect(() => {
     const textarea = promptInputRef.current;
@@ -780,6 +844,7 @@ export default function ChatWindow() {
         {
           role: "assistant",
           content: getTellerGreeting(),
+          createdAt: Date.now(),
         },
       ]);
       if (!isAuthenticated) {
@@ -787,6 +852,7 @@ export default function ChatWindow() {
           {
             role: "assistant",
             content: getTellerGreeting(),
+            createdAt: Date.now(),
           },
         ];
         const initial: HistoryItem = {
@@ -827,6 +893,7 @@ export default function ChatWindow() {
               {
                 role: "assistant",
                 content: getTellerGreeting(),
+                createdAt: Date.now(),
               },
             ];
             const initial: HistoryItem = {
@@ -900,7 +967,9 @@ export default function ChatWindow() {
       setMessages(modeHistory.messages);
     } else {
       const id = Date.now().toString();
-      const initialMessages: Message[] = [{ role: "assistant", content: getModeGreeting(requestedAgent) }];
+      const initialMessages: Message[] = [
+        { role: "assistant", content: getModeGreeting(requestedAgent), createdAt: Date.now() },
+      ];
       const newHistory: HistoryItem = {
         id,
         title: "New chat",
@@ -1003,6 +1072,7 @@ export default function ChatWindow() {
       {
         role: "assistant",
         content: getModeGreeting(agent),
+        createdAt: Date.now(),
       },
     ];
     const newItem: HistoryItem = {
@@ -1046,6 +1116,7 @@ export default function ChatWindow() {
             role: "assistant",
             content: getModeGreeting(activeAgent),
             file: null,
+            createdAt: Date.now(),
           }];
           const newHist: HistoryItem = {
             id: newId,
@@ -1251,6 +1322,7 @@ export default function ChatWindow() {
     const userMessage: Message = {
       role: "user",
       content: messageText.trim(),
+      createdAt: Date.now(),
       file: requestFile,
     };
 
@@ -1295,6 +1367,7 @@ export default function ChatWindow() {
         const assistantMessage: Message = {
           role: "assistant",
           content: typeof data.reply === "string" ? data.reply : "CyberMail completed the request.",
+          createdAt: Date.now(),
           ...(data.pendingAction ? { pendingAction: data.pendingAction as CyberPendingAction } : {}),
         };
         const nextMessages = [...updatedMessages, assistantMessage];
@@ -1414,6 +1487,7 @@ export default function ChatWindow() {
         const assistantMessage: Message = {
           role: "assistant",
           content: `Log in to generate images, then send this prompt again:\n\n${userMessage.content.trim()}`,
+          createdAt: Date.now(),
         };
         const nextMessages = [...updatedMessages, assistantMessage];
         if (activeHistoryIdRef.current === requestHistoryId) setMessages(nextMessages);
@@ -1477,6 +1551,7 @@ export default function ChatWindow() {
         const assistantMessage: Message = {
           role: "assistant",
           content: "Here’s the image you asked for.",
+          createdAt: Date.now(),
           imageUrl: imageData.imageUrl,
           imageStoragePath: imageData.imageStoragePath,
           imageDescription: imageData.imageDescription,
@@ -1546,6 +1621,7 @@ export default function ChatWindow() {
         const assistantMessage: Message = {
           role: "assistant",
           content: data.reply,
+          createdAt: Date.now(),
           file: null,
           ...(Array.isArray(data.choices)
             ? {
@@ -1568,7 +1644,7 @@ export default function ChatWindow() {
       } else {
         const nextMessages: Message[] = [
           ...updatedMessages,
-          { role: "assistant", content: "Sorry, something went wrong.", file: null },
+          { role: "assistant", content: "Sorry, something went wrong.", file: null, createdAt: Date.now() },
         ];
         if (activeHistoryIdRef.current === requestHistoryId) setMessages(nextMessages);
         updateHistoryMessages(requestHistoryId, nextMessages, { agent: requestAgent });
@@ -1577,7 +1653,7 @@ export default function ChatWindow() {
       const errorMessage = getErrorMessage(err) || "Network error. Please try again.";
       const nextMessages: Message[] = [
         ...updatedMessages,
-        { role: "assistant", content: errorMessage, file: null },
+        { role: "assistant", content: errorMessage, file: null, createdAt: Date.now() },
       ];
       if (activeHistoryIdRef.current === requestHistoryId) setMessages(nextMessages);
       updateHistoryMessages(requestHistoryId, nextMessages, { agent: requestAgent });
@@ -1650,13 +1726,18 @@ export default function ChatWindow() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not complete the confirmed action.");
       const resultMessage = `${data.message || "Google action completed."}${data.link ? `\n\n[Open in Google](${data.link})` : ""}`;
+      const resultAssistantMessage: Message = {
+        role: "assistant",
+        content: resultMessage,
+        createdAt: Date.now(),
+      };
       setMessages((current) => {
         const actionIndex = current.findIndex((message) => message.pendingAction?.id === action.id);
         return current.flatMap((message, index) => {
         if (index !== actionIndex) return [message];
         return [
           { ...message, pendingAction: undefined },
-          { role: "assistant", content: resultMessage },
+          resultAssistantMessage,
         ];
         });
       });
@@ -1668,7 +1749,7 @@ export default function ChatWindow() {
                 messages: history.messages.flatMap((message) => (
                   message.pendingAction?.id !== action.id
                     ? [message]
-                    : [{ ...message, pendingAction: undefined }, { role: "assistant", content: resultMessage }]
+                    : [{ ...message, pendingAction: undefined }, resultAssistantMessage]
                 )),
                 updatedAt: Date.now(),
               }
@@ -1677,9 +1758,14 @@ export default function ChatWindow() {
       }
     } catch (error) {
       const resultMessage = `The confirmed action could not be completed: ${getErrorMessage(error)}`;
+      const resultAssistantMessage: Message = {
+        role: "assistant",
+        content: resultMessage,
+        createdAt: Date.now(),
+      };
       setMessages((current) => current.flatMap((message) => (
         message.pendingAction?.id === action.id
-          ? [{ ...message, pendingAction: undefined }, { role: "assistant", content: resultMessage }]
+          ? [{ ...message, pendingAction: undefined }, resultAssistantMessage]
           : [message]
       )));
     } finally {
@@ -2539,18 +2625,31 @@ export default function ChatWindow() {
               message.role === "user" && message.file ? null :
               <div
                 key={index}
-                className={`min-w-0 max-w-[85%] overflow-hidden rounded-[2rem] p-4 [overflow-wrap:anywhere] transition-[transform,box-shadow,background-color] duration-300 ease-out hover:scale-[1.015] active:scale-[0.99] motion-reduce:transition-none ${
-                  message.role === "assistant" ? "chat-assistant-message" : ""
-                } ${
-                  message.role === "user"
-                    ? "ml-auto bg-blue-600 shadow-md shadow-blue-950/30"
-                    : index === latestAssistantMessageIndex
-                      ? "mr-auto chat-assistant-active bg-gradient-to-br from-neutral-700 to-neutral-800 shadow-lg shadow-sky-950/30"
-                      : "mr-auto bg-neutral-800"
-                }`}
+                onPointerDown={(event) => startTimestampPress(index, event)}
+                onPointerUp={cancelTimestampPress}
+                onPointerCancel={cancelTimestampPress}
+                onPointerLeave={cancelTimestampPress}
+                onContextMenu={() => revealTimestamp(index)}
+                className={message.role === "assistant"
+                  ? `chat-assistant-message min-w-0 w-full [overflow-wrap:anywhere] ${
+                    index === latestAssistantMessageIndex ? "chat-assistant-enter" : ""
+                  }`
+                  : "ml-auto min-w-0 max-w-[85%] overflow-hidden rounded-[2rem] bg-blue-600 p-4 [overflow-wrap:anywhere] shadow-md shadow-blue-950/30 transition-transform duration-300 ease-out hover:scale-[1.015] active:scale-[0.99] motion-reduce:transition-none"}
               >
                 <div className="min-w-0 max-w-full text-sm leading-7 [overflow-wrap:anywhere]">
-                  <FormattedMessage content={message.content} showCodeCopy={message.role === "assistant"} onCopyCode={(code) => void copyText(code, index)} />
+                  {message.role === "assistant" &&
+                  index === latestAssistantMessageIndex &&
+                  index > 0 ? (
+                    <ProgressiveResponse content={message.content}>
+                      <FormattedMessage content={message.content} onCopyCode={(code) => void copyText(code, index)} />
+                    </ProgressiveResponse>
+                  ) : (
+                    <FormattedMessage
+                      content={message.content}
+                      showCodeCopy={message.role === "assistant"}
+                      onCopyCode={(code) => void copyText(code, index)}
+                    />
+                  )}
                 </div>
                 {message.role === "assistant" &&
                   activeAgent === "teller" &&
@@ -2725,6 +2824,22 @@ export default function ChatWindow() {
                   voiceReplyError.content === getVoiceContent(message) && (
                   <p className="mt-2 text-xs text-rose-300" role="alert">{voiceReplyError.message}</p>
                 )}
+                <div
+                  aria-hidden={visibleTimestampIndex !== index}
+                  className={`overflow-hidden text-xs transition-[max-height,opacity,margin] duration-300 ease-out motion-reduce:transition-none ${
+                    visibleTimestampIndex === index
+                      ? `mt-2 max-h-8 opacity-100 ${message.role === "user" ? "text-right text-blue-100/70" : "text-neutral-500"}`
+                      : "mt-0 max-h-0 opacity-0"
+                  }`}
+                >
+                  {message.createdAt !== undefined ? (
+                    <time dateTime={new Date(message.createdAt).toISOString()}>
+                      {new Date(message.createdAt).toLocaleString()}
+                    </time>
+                  ) : (
+                    <span>Timestamp unavailable for this saved message</span>
+                  )}
+                </div>
               </div>
             ))}
 
@@ -2807,7 +2922,6 @@ export default function ChatWindow() {
               </div>
             )}
 
-            <div ref={messagesEndRef} />
           </div>
         </div>
 

@@ -31,7 +31,6 @@ export default function AccountSettingsPage() {
   const [planName, setPlanName] = useState("Free");
   const [usageLimit, setUsageLimit] = useState(100);
   const [aiResponsesEnabled, setAiResponsesEnabled] = useState(true);
-  const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
   const [saveMessage, setSaveMessage] = useState("");
   const [saveError, setSaveError] = useState("");
   const [firstName, setFirstName] = useState(user?.given_name || user?.name?.split(" ")[0] || "");
@@ -75,11 +74,9 @@ export default function AccountSettingsPage() {
       const storedPreferences = JSON.parse(localStorage.getItem(preferencesKey) || "null");
       if (storedPreferences) {
         setAiResponsesEnabled(storedPreferences.aiResponsesEnabled ?? true);
-        setAutoScrollEnabled(storedPreferences.autoScrollEnabled ?? true);
       }
     } catch {
       setAiResponsesEnabled(true);
-      setAutoScrollEnabled(true);
     }
   }, [preferencesKey]);
 
@@ -314,7 +311,7 @@ export default function AccountSettingsPage() {
 
       localStorage.setItem(
         preferencesKey,
-        JSON.stringify({ aiResponsesEnabled, autoScrollEnabled }),
+        JSON.stringify({ aiResponsesEnabled }),
       );
       setSaveMessage("Settings saved. Closing...");
       window.setTimeout(() => {
@@ -825,15 +822,6 @@ export default function AccountSettingsPage() {
                   type="checkbox"
                   checked={aiResponsesEnabled}
                   onChange={(event) => setAiResponsesEnabled(event.target.checked)}
-                  className="h-4 w-4 accent-white"
-                />
-              </label>
-              <label className="flex items-center justify-between gap-4">
-                <span>Auto-scroll history</span>
-                <input
-                  type="checkbox"
-                  checked={autoScrollEnabled}
-                  onChange={(event) => setAutoScrollEnabled(event.target.checked)}
                   className="h-4 w-4 accent-white"
                 />
               </label>
