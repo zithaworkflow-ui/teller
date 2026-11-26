@@ -616,6 +616,8 @@ export default function ChatWindow() {
       createdAt: Date.now(),
     },
   ]);
+  const messagesScrollRef = useRef<HTMLDivElement | null>(null);
+  const autoScrollToThinkingHistoryRef = useRef<string | null>(null);
 
   const [histories, setHistories] = useState<HistoryItem[]>([]);
   const [activeHistoryId, setActiveHistoryId] = useState<string | null>(null);
@@ -700,8 +702,8 @@ export default function ChatWindow() {
   const [profilePicture, setProfilePicture] = useState("");
   const [planName, setPlanName] = useState("Free");
   const [usageLimit, setUsageLimit] = useState(100);
-  const [dailyImageCount, setDailyImageCount] = useState(0);
-  const [dailyImageLimit, setDailyImageLimit] = useState(5);
+  const [, setDailyImageCount] = useState(0);
+  const [, setDailyImageLimit] = useState(5);
   const [googleConnection, setGoogleConnection] = useState<GoogleConnectionStatus | null>(null);
   const [googleConnectionError, setGoogleConnectionError] = useState("");
   const [googleConnectionNotice, setGoogleConnectionNotice] = useState("");
@@ -725,6 +727,32 @@ export default function ChatWindow() {
   useEffect(() => {
     activeHistoryIdRef.current = activeHistoryId;
   }, [activeHistoryId]);
+
+  useEffect(() => {
+    const historyId = autoScrollToThinkingHistoryRef.current;
+    if (!historyId) return;
+    if (historyId !== activeHistoryId) {
+      autoScrollToThinkingHistoryRef.current = null;
+      return;
+    }
+
+    const scrollContainer = messagesScrollRef.current;
+    if (!scrollContainer) return;
+
+    let lastUserMessageIndex = -1;
+    messages.forEach((message, index) => {
+      if (message.role === "user") lastUserMessageIndex = index;
+    });
+    const hasFirstResponse = messages
+      .slice(lastUserMessageIndex + 1)
+      .some((message) => message.role === "assistant");
+
+    scrollContainer.scrollTo({
+      top: scrollContainer.scrollHeight,
+      behavior: "smooth",
+    });
+    if (hasFirstResponse) autoScrollToThinkingHistoryRef.current = null;
+  }, [activeHistoryId, loading, messages, researchSites.length]);
 
   useEffect(() => {
     setIsMounted(true);
@@ -992,13 +1020,10 @@ export default function ChatWindow() {
     setHistories((prev) => {
       const next = prev.slice();
       const idx = next.findIndex((h) => h.id === activeHistoryId);
-      const titleFromUser = messages.find((m) => m.role === "user")?.content?.slice(0, 60) || "New chat";
-      // If there's an existing non-default title (likely AI-generated), preserve it.
       const existing = prev.find((h) => h.id === activeHistoryId);
-      const finalTitle = existing && existing.title && existing.title !== "New chat" ? existing.title : titleFromUser;
       const updated: HistoryItem = {
         id: activeHistoryId,
-        title: finalTitle,
+        title: existing?.title || "New chat",
         agent: activeAgent,
         ...(activeMapQuery ? { mapQuery: activeMapQuery } : {}),
         messages,
@@ -1229,11 +1254,15 @@ export default function ChatWindow() {
     historyId: string,
     conversationMessages: Message[],
   ) {
-    const userMessageCount = conversationMessages.filter((message) => message.role === "user").length;
-    const assistantMessageCount = conversationMessages.filter((message) => message.role === "assistant").length;
+    const userMessages = conversationMessages.filter((message) => message.role === "user");
+    const userMessageCount = userMessages.length;
+    if (userMessageCount < 2) return;
+    const firstPromptTitle = userMessages[0].content.slice(0, 60);
+    const existingHistory = histories.find((history) => history.id === historyId);
     if (
-      (userMessageCount !== 4 && userMessageCount !== 7) ||
-      assistantMessageCount < userMessageCount + 1
+      existingHistory?.title &&
+      existingHistory.title !== "New chat" &&
+      existingHistory.title !== firstPromptTitle
     ) return;
     if (titleGeneratedPromptCountsRef.current.get(historyId) === userMessageCount) return;
     titleGeneratedPromptCountsRef.current.set(historyId, userMessageCount);
@@ -1247,10 +1276,9 @@ export default function ChatWindow() {
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
-          messages: conversationMessages
-            .filter((message) => message.role === "user" || message.role === "assistant")
-            .map((message) => ({ role: message.role, content: message.content }))
-            .slice(-12),
+          messages: userMessages
+            .slice(0, 2)
+            .map((message) => ({ role: message.role, content: message.content })),
         }),
       });
       if (!response.ok) {
@@ -1298,9 +1326,7 @@ export default function ChatWindow() {
         ? {
             ...history,
             ...updates,
-            title: history.title === "New chat"
-              ? nextMessages.find((message) => message.role === "user")?.content.slice(0, 60) || history.title
-              : history.title,
+            title: history.title || "New chat",
             messages: nextMessages,
             updatedAt,
           }
@@ -1318,6 +1344,7 @@ export default function ChatWindow() {
     setResearchSitesByHistory((previous) => ({ ...previous, [requestHistoryId]: [] }));
     const requestAgent = activeAgent;
     const requestFile = imageEditReference ? null : hasSession ? pendingFile : null;
+    autoScrollToThinkingHistoryRef.current = requestHistoryId;
 
     const userMessage: Message = {
       role: "user",
@@ -2148,7 +2175,6 @@ export default function ChatWindow() {
             </button>
             {/* file attach control moved to the input area (left of prompt) */}
 
-            {/* Titles are generated automatically after the first assistant reply; removed manual button */}
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto space-y-5 text-sm text-neutral-400 modern-scroll">
@@ -2300,10 +2326,9 @@ export default function ChatWindow() {
               </button>
             )}
             {hasSession && (
-              <div className="mt-3 px-3 text-xs text-neutral-400">
-                {planName} plan: {monthlyChatCount}/{usageLimit} chats this month
-                <span className="mt-1 block">
-                  {dailyImageCount}/{dailyImageLimit} images today
+              <div className="mt-3 px-3">
+                <span className="inline-flex items-center rounded-full border border-neutral-300/50 bg-gradient-to-r from-neutral-200 via-neutral-100 to-neutral-300 px-3 py-1 text-xs font-medium text-neutral-900 shadow-sm">
+                  Tier plan · {planName}
                 </span>
               </div>
             )}
@@ -2490,7 +2515,7 @@ export default function ChatWindow() {
           </section>
         ) : (
           <>
-        <div className="min-h-0 flex-1 overflow-y-auto p-4 modern-scroll">
+        <div ref={messagesScrollRef} className="min-h-0 flex-1 overflow-y-auto p-4 modern-scroll">
           <div className={`mx-auto min-w-0 space-y-4 ${activeAgent === "maps" ? "max-w-5xl" : "max-w-3xl"}`}>
             {activeAgent === "maps" && (
               <section className="overflow-hidden rounded-2xl border border-sky-500/20 bg-sky-500/[0.04]">
@@ -2751,7 +2776,7 @@ export default function ChatWindow() {
                       {voiceReplyPlayback.segment}
                     </p>
                   )}
-                <div className={`mt-3 flex gap-2 pt-2 opacity-70 ${message.role === "assistant" ? "" : "border-t border-white/10"}`}>
+                <div className="mt-3 flex gap-2 pt-2 opacity-70">
                   {message.role === "assistant" ? (
                     <>
                       <button type="button" onClick={() => void copyText(message.content, index)} className="rounded px-1 text-xl leading-none text-neutral-300 hover:text-white" aria-label={copiedMessage === index ? "Copied" : "Copy message"} title={copiedMessage === index ? "Copied" : "Copy message"}>{copiedMessage === index ? "✓" : "⧉"}</button>
@@ -3116,7 +3141,7 @@ export default function ChatWindow() {
                 {speechError && <p className="px-3 pt-2 text-xs text-rose-300" role="alert">{speechError}</p>}
             </div>
             <p className="px-3 pt-2 text-center text-xs text-neutral-500">
-              Teller can make mistakes, just like ChatGPT. Check important information.{" "}
+              Grope can make mistakes. Check important information.{" "}
               {hasSession
                 ? "To save a memory, start a message with “Remember that…”"
                 : "Sign in to save personal memories."}

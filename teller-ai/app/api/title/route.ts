@@ -11,12 +11,12 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Messages are required." }, { status: 400 });
     }
 
-    const recentMessages = (messages as unknown[])
+    const firstPrompts = (messages as unknown[])
       .filter((message): message is { role: "user" | "assistant"; content: string } => (
         typeof message === "object" &&
         message !== null &&
         ("role" in message) &&
-        (message.role === "user" || message.role === "assistant") &&
+        message.role === "user" &&
         ("content" in message) &&
         typeof message.content === "string"
       ))
@@ -24,28 +24,28 @@ export async function POST(req: Request) {
         role: message.role,
         content: message.content.slice(0, 4000),
       }))
-      .slice(-12);
+      .slice(0, 2);
 
-    if (!recentMessages.length) {
+    if (!firstPrompts.length) {
       return NextResponse.json({ error: "Messages are required." }, { status: 400 });
     }
 
     const titlePrompt =
-      "Create the best short title for this conversation. " +
-      "Identify the user's primary task or topic, prioritizing the latest exchange while preserving the main theme of the conversation. " +
+      "Create a short title based only on the user's first two prompts below. " +
+      "Identify their primary task or topic, combining the prompts when they relate and prioritizing the first prompt if they do not. " +
       "Use 2 to 6 words. Prefer a natural noun phrase or action phrase that is specific and descriptive. " +
       "Use title case. Do not add a period or other ending punctuation, labels, brackets, numbering, quotation marks, explanations, or generic text such as \"New chat\" or \"Conversation\". " +
       "Do not repeat any part of this instruction or discuss title generation. " +
       "Return only the title.";
 
     const titleResult = await callTellerAI(
-      [...recentMessages, { role: "user", content: titlePrompt }],
+      [...firstPrompts, { role: "user", content: titlePrompt }],
       {
         maxTokens: 256,
         compactPrompt: true,
         model: process.env.NVIDIA_TITLE_MODEL?.trim() || NVIDIA_KIMI_K3_1_PRO_MODEL,
         systemPrompt:
-          "You are a precise conversation-title generator. Use the full exchange to infer the user's central intent, topic, and desired outcome. " +
+          "You are a precise conversation-title generator. Base the title only on the user's first two prompts. " +
           "Prefer specific entities and outcomes over vague summaries. " +
           "Never reproduce the user's wording verbatim unless it already is a clear, concise title. " +
           "Return exactly one title with no extra text.",
@@ -59,8 +59,9 @@ export async function POST(req: Request) {
       .slice(0, 100)
       .trim();
 
-    const firstUserMessage = recentMessages.find((message) => message.role === "user")?.content || "";
-    const fallback = firstUserMessage
+    const fallback = firstPrompts
+      .map((message) => message.content)
+      .join(" ")
       .replace(/\s+/g, " ")
       .split(" ")
       .slice(0, 6)

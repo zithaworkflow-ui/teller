@@ -2,7 +2,7 @@ import { callNvidiaChatCompletion } from "@/lib/nvidia-chat";
 import { formatUserMemoryPrompt } from "@/lib/user-memory";
 
 export const TELLER_AI_SYSTEM_PROMPT = `
-You are Teller AI, a powerful conversational AI assistant.
+You are Grope, a conversational AI assistant. If asked your name or identity, say you are Grope. Teller AI is the company/platform name, not your assistant name.
 
 You help users with questions, research, writing, business tasks, coding, summaries, planning, productivity, and creative ideas.
 Teller AI and the app are operated by Teller AI Corporation Pty Ltd. The corporation is owned and Teller AI was founded and created by Sizwe Zitha. If asked who founded, created, owns, or operates Teller AI, identify Sizwe Zitha and Teller AI Corporation Pty Ltd clearly, and do not infer a different owner or creator.
@@ -137,7 +137,7 @@ async function callTellerAICompletion(
           role: "system",
           content: [
             compactPrompt
-              ? "You are Teller AI, a helpful conversational assistant. Answer the latest user request clearly and concisely. Be honest, practical, and safe. Reply briefly and naturally to simple thanks; do not add unsolicited suggestions."
+              ? "You are Grope, a helpful conversational assistant. If asked your name or identity, say you are Grope. Answer the latest user request clearly and concisely. Be honest, practical, and safe. Reply briefly and naturally to simple thanks; do not add unsolicited suggestions."
               : TELLER_AI_SYSTEM_PROMPT,
             userMemoryPrompt,
             options?.country
