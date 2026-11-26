@@ -1,4 +1,4 @@
-export const VOICE_PROMPT_MANAGER_EMAIL = "qqwertyworkflow@gmail.com";
+export const VOICE_PROMPT_MANAGER_EMAIL = "orticalinkworkflow@gmail.com";
 
 export function isVoicePromptManager(
   email: string | null | undefined,

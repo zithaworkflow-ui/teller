@@ -16,16 +16,14 @@ export default function HomePage() {
 
       <div className="mx-auto flex min-h-screen max-w-7xl flex-col px-5 sm:px-8">
         <header className="flex items-center justify-between border-b border-white/[0.09] py-5">
-          <Link href="/" aria-label="Teller AI home" className="flex items-center gap-3">
+          <Link href="/" aria-label="Teller home" className="flex items-center gap-3">
             <Image
               src={metallicTEmblem}
               alt=""
               priority
               className="h-10 w-10 rounded-full object-cover drop-shadow-[0_0_16px_rgba(59,130,246,0.3)]"
             />
-            <span className="text-sm font-semibold tracking-[0.18em]">
-              TELLER <span className="text-blue-200/55">AI</span>
-            </span>
+            <span className="text-sm font-semibold tracking-[0.18em]">TELLER</span>
           </Link>
 
           <nav aria-label="Main navigation" className="flex items-center gap-3 sm:gap-6">
@@ -80,8 +78,8 @@ export default function HomePage() {
             <div className="relative overflow-hidden rounded-[1.75rem] border border-blue-100/15 bg-[#071225]/80 p-2 shadow-[0_32px_100px_rgba(0,0,0,0.55)] backdrop-blur-xl sm:rounded-[2rem] sm:p-3">
               <div className="relative overflow-hidden rounded-[1.25rem] bg-[#050914] sm:rounded-[1.5rem]">
                 <Image
-                  src="/t-and-jupiter-logo.png"
-                  alt="A metallic T emblem alongside Jupiter"
+                  src={metallicTEmblem}
+                  alt="A futuristic metallic T emblem"
                   width={1536}
                   height={1024}
                   priority

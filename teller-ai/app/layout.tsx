@@ -14,16 +14,16 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Teller AI",
-  description: "Teller AI — conversational assistant for research, writing, and coding",
+  title: "Teller",
+  description: "Teller — conversational assistant for research, writing, and coding",
   icons: {
     icon: "/favicon.png",
     shortcut: "/favicon.png",
     apple: "/apple-touch-icon.png",
   },
   openGraph: {
-    title: "Teller AI",
-    description: "Teller AI — conversational assistant for research, writing, and coding",
+    title: "Teller",
+    description: "Teller — conversational assistant for research, writing, and coding",
     images: "/favicon.png",
   },
 };

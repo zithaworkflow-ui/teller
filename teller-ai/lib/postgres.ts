@@ -59,6 +59,22 @@ function getCyberAgentPool() {
   return globalForPostgres.tellerCyberAgentPostgresPool;
 }
 
+async function deleteUserRows(pool: Pool, userId: string, statements: string[]) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    for (const statement of statements) {
+      await client.query(statement, [userId]);
+    }
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 async function ensureSchema() {
   if (!globalForPostgres.tellerPostgresSchema) {
     globalForPostgres.tellerPostgresSchema = getPool().query(`
@@ -339,6 +355,54 @@ export async function getUserAccountData(userId: string): Promise<UserAccountDat
         phoneCountry: "",
         phoneNumber: "",
       };
+}
+
+export async function deleteUserAccountData(userId: string) {
+      await ensureSchema();
+      await ensureCyberAgentSchema();
+
+      await deleteUserRows(getPool(), userId, [
+        "DELETE FROM teller_chat_media WHERE user_id = $1",
+        "DELETE FROM teller_user_voice_prompts WHERE user_id = $1",
+        "DELETE FROM teller_user_daily_image_usage WHERE user_id = $1",
+        "DELETE FROM teller_user_memories WHERE user_id = $1",
+        "DELETE FROM teller_user_profile_pictures WHERE user_id = $1",
+        "DELETE FROM teller_user_chat_data WHERE user_id = $1",
+        "DELETE FROM teller_user_accounts WHERE user_id = $1",
+        "DELETE FROM teller_google_connections WHERE user_id = $1",
+        "DELETE FROM teller_google_oauth_states WHERE user_id = $1",
+        "DELETE FROM teller_google_pending_actions WHERE user_id = $1",
+      ]);
+      await deleteUserRows(getCyberAgentPool(), userId, [
+        "DELETE FROM teller_google_connections WHERE user_id = $1",
+        "DELETE FROM teller_google_oauth_states WHERE user_id = $1",
+        "DELETE FROM teller_google_pending_actions WHERE user_id = $1",
+      ]);
+}
+
+export async function getAllUserAccountData() {
+      await ensureSchema();
+      const result = await getPool().query<{
+        user_id: string;
+        plan_key: string;
+        first_name: string;
+        surname: string;
+        country: string;
+        phone_number: string;
+        updated_at: Date;
+      }>(`
+        SELECT user_id, plan_key, first_name, surname, country, phone_number, updated_at
+        FROM teller_user_accounts
+      `);
+      return result.rows.map((row) => ({
+        userId: row.user_id,
+        planKey: row.plan_key,
+        firstName: row.first_name,
+        surname: row.surname,
+        country: row.country,
+        phoneNumber: row.phone_number,
+        updatedAt: row.updated_at,
+      }));
 }
 
 export async function updateUserAccountProfile(

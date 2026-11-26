@@ -1607,7 +1607,7 @@ export default function ChatWindow() {
             }));
           })
         : await response.json() as ChatResponsePayload;
-      if (!response.ok) throw new Error(data.error || "Teller AI could not complete that request.");
+      if (!response.ok) throw new Error(data.error || "Teller could not complete that request.");
 
       const hasServerUsageCount = typeof data.usageCount === "number" && Number.isInteger(data.usageCount);
       if (typeof data.usageCount === "number" && Number.isInteger(data.usageCount)) {
@@ -2036,7 +2036,7 @@ export default function ChatWindow() {
     }
     setInput(message.content);
     setPendingFile(message.file || null);
-    window.setTimeout(() => document.querySelector<HTMLInputElement>("input[placeholder='Ask Teller AI anything...']")?.focus(), 0);
+    window.setTimeout(() => document.querySelector<HTMLInputElement>("input[placeholder='Ask Grope anything...']")?.focus(), 0);
   }
 
   async function submitImageEdit() {
@@ -2087,7 +2087,7 @@ export default function ChatWindow() {
     ? "CyberMail"
     : activeAgent === "maps"
       ? "CyberMaps"
-      : "Teller AI";
+      : "Grope";
   const ActiveAgentIcon = activeAgent === "cyber"
     ? Mail
     : activeAgent === "maps"
@@ -2420,7 +2420,7 @@ export default function ChatWindow() {
               <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <h1 id="generated-image-history-heading" className="text-2xl font-semibold text-white">File history</h1>
-                  <p className="mt-1 text-sm text-neutral-400">Images you have generated with Teller AI.</p>
+                  <p className="mt-1 text-sm text-neutral-400">Images you have generated with Teller.</p>
                 </div>
                 <button
                   type="button"
@@ -2847,7 +2847,7 @@ export default function ChatWindow() {
               messages.every((message) => message.role !== "user") &&
               messages.length > 0 && (
                 <section aria-label="Example prompts" className="rounded-2xl border border-sky-400/15 bg-sky-400/[0.03] p-4">
-                  <p className="mb-3 text-xs font-medium text-neutral-400">Try asking Teller AI</p>
+                  <p className="mb-3 text-xs font-medium text-neutral-400">Try asking Teller</p>
                   <div className="flex flex-wrap gap-2">
                     {[
                       "Explain how black holes form in simple terms",
@@ -2917,7 +2917,7 @@ export default function ChatWindow() {
                     ? "CyberMail is working..."
                     : activeAgent === "maps"
                       ? "CyberMaps is working..."
-                      : "Teller AI is thinking..."
+                      : "Grope is thinking..."
                 )}
               </div>
             )}
@@ -2950,19 +2950,19 @@ export default function ChatWindow() {
                     onClick={() => setIsModeMenuOpen((open) => !open)}
                     disabled={loading || isRecording || isTranscribing}
                     className="flex h-10 items-center gap-2 rounded-full border border-neutral-700 px-3 text-xs font-medium text-neutral-200 transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50"
-                    aria-label={`Mode: ${activeAgent === "cyber" ? "CyberMail" : activeAgent === "maps" ? "CyberMaps" : "Teller AI"}`}
+                    aria-label={`Mode: ${activeAgent === "cyber" ? "CyberMail" : activeAgent === "maps" ? "CyberMaps" : "Grope"}`}
                     aria-haspopup="menu"
                     aria-expanded={isModeMenuOpen}
                   >
                     <span className="max-w-32 truncate font-bold text-white">
-                      {activeAgent === "cyber" ? "CyberMail" : activeAgent === "maps" ? "CyberMaps" : "Teller AI"}
+                      {activeAgent === "cyber" ? "CyberMail" : activeAgent === "maps" ? "CyberMaps" : "Grope"}
                     </span>
                     <span aria-hidden="true">▾</span>
                   </button>
                   {isModeMenuOpen && (
                     <div className="absolute bottom-12 left-0 z-30 w-56 rounded-xl border border-neutral-700 bg-neutral-900 p-1 shadow-xl" role="menu" aria-label="Choose chat mode">
                       {([
-                        { id: "teller", label: "Teller AI", description: "General chat" },
+                        { id: "teller", label: "Grope", description: "General chat" },
                         { id: "cyber", label: "CyberMail", description: "Gmail & Calendar" },
                         { id: "maps", label: "CyberMaps", description: "Directions & live map" },
                       ] as const).map((mode) => (
@@ -3075,7 +3075,7 @@ export default function ChatWindow() {
                     ref={promptInputRef}
                     rows={1}
                     className="order-3 max-h-[45vh] min-h-11 min-w-0 flex-1 resize-none overflow-y-auto bg-transparent px-2 py-3 text-sm leading-5 text-white outline-none placeholder:text-neutral-500"
-                    placeholder={activeAgent === "cyber" ? "Ask CyberMail about Gmail or your calendar..." : activeAgent === "maps" ? "Search for a place or ask for directions..." : "Ask Teller AI anything..."}
+                    placeholder={activeAgent === "cyber" ? "Ask CyberMail about Gmail or your calendar..." : activeAgent === "maps" ? "Search for a place or ask for directions..." : "Ask Grope anything..."}
                     value={input}
                     disabled={loading}
                     onChange={(e) => setInput(e.target.value)}
@@ -3085,7 +3085,7 @@ export default function ChatWindow() {
                         void sendMessage();
                       }
                     }}
-                    aria-label={`Message ${activeAgent === "cyber" ? "CyberMail" : activeAgent === "maps" ? "CyberMaps" : "Teller AI"}`}
+                    aria-label={`Message ${activeAgent === "cyber" ? "CyberMail" : activeAgent === "maps" ? "CyberMaps" : "Teller"}`}
                   />
                 )}
 
@@ -3116,7 +3116,7 @@ export default function ChatWindow() {
                 {speechError && <p className="px-3 pt-2 text-xs text-rose-300" role="alert">{speechError}</p>}
             </div>
             <p className="px-3 pt-2 text-center text-xs text-neutral-500">
-              Teller AI can make mistakes, just like ChatGPT. Check important information.{" "}
+              Teller can make mistakes, just like ChatGPT. Check important information.{" "}
               {hasSession
                 ? "To save a memory, start a message with “Remember that…”"
                 : "Sign in to save personal memories."}

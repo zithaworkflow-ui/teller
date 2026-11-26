@@ -137,7 +137,7 @@ export default function ProfileSetupDialog({
               Complete your profile
             </h2>
             <p className="mt-2 text-sm text-neutral-400">
-              Update your name and location to personalize Teller AI.
+              Update your name and location to personalize Teller.
             </p>
           </div>
           <button

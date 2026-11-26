@@ -23,7 +23,7 @@ export default function PricingPage() {
         <div className="mb-12 text-center">
           <h1 className="text-4xl font-bold md:text-5xl">Pricing</h1>
           <p className="mt-4 text-neutral-300">
-            Choose the Teller AI plan that works for you.
+            Choose the Teller plan that works for you.
           </p>
         </div>
 

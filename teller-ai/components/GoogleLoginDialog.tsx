@@ -1,6 +1,8 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useState } from "react";
+import metallicTEmblem from "../Futuristic Metallic T Emblem.png";
 
 export default function GoogleLoginDialog({
   isOpen,
@@ -61,13 +63,20 @@ export default function GoogleLoginDialog({
         role="dialog"
       >
         <div className="flex items-start justify-between gap-4">
-          <div>
-            <h2 className="text-xl font-semibold" id="google-login-title">
-              Log in to Teller AI
-            </h2>
-            <p className="mt-2 text-sm text-neutral-400">
-              {description}
-            </p>
+          <div className="flex items-start gap-3">
+            <Image
+              src={metallicTEmblem}
+              alt=""
+              className="h-10 w-10 shrink-0 rounded-full object-cover"
+            />
+            <div>
+              <h2 className="text-xl font-semibold" id="google-login-title">
+                Log in to Teller
+              </h2>
+              <p className="mt-2 text-sm text-neutral-400">
+                {description}
+              </p>
+            </div>
           </div>
           <button
             aria-label="Close login"
@@ -80,15 +89,18 @@ export default function GoogleLoginDialog({
           </button>
         </div>
         <button
-          className="mt-6 flex w-full items-center justify-center gap-3 rounded-lg bg-white px-4 py-3 text-sm font-medium text-neutral-900 hover:bg-neutral-100 disabled:cursor-wait disabled:opacity-70"
+          className="mt-6 flex w-full items-center justify-center gap-3 rounded-xl border border-neutral-300 bg-white/95 px-4 py-3 text-sm font-semibold text-neutral-900 shadow-[0_8px_24px_rgba(0,0,0,0.18)] backdrop-blur transition hover:-translate-y-0.5 hover:border-neutral-200 hover:bg-white hover:shadow-[0_12px_28px_rgba(0,0,0,0.24)] disabled:cursor-wait disabled:translate-y-0 disabled:opacity-70"
           disabled={isLoading}
           onClick={() => void continueWithGoogle()}
           type="button"
         >
           {showGoogleMark && (
-            <span aria-hidden="true" className="font-bold text-base text-blue-600">
-              G
-            </span>
+            <svg aria-hidden="true" className="h-[18px] w-[18px]" viewBox="0 0 18 18">
+              <path fill="#4285F4" d="M17.64 9.2c0-.63-.06-1.24-.16-1.82H9v3.44h4.84a4.14 4.14 0 0 1-1.8 2.72v2.27h2.92c1.71-1.57 2.68-3.89 2.68-6.61Z" />
+              <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.27c-.8.54-1.83.86-3.04.86-2.34 0-4.32-1.58-5.03-3.71H.96v2.34A9 9 0 0 0 9 18Z" />
+              <path fill="#FBBC05" d="M3.97 10.7A5.41 5.41 0 0 1 3.69 9c0-.59.1-1.16.28-1.7V4.96H.96A9 9 0 0 0 0 9c0 1.45.35 2.82.96 4.04l3.01-2.34Z" />
+              <path fill="#EA4335" d="M9 3.58c1.32 0 2.51.45 3.44 1.35l2.58-2.58A8.65 8.65 0 0 0 9 0 9 9 0 0 0 .96 4.96l3.01 2.34C4.68 5.16 6.66 3.58 9 3.58Z" />
+            </svg>
           )}
           {isLoading ? "Connecting..." : buttonLabel}
         </button>

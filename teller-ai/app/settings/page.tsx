@@ -1,12 +1,13 @@
 "use client";
 
 import { useAppAuth } from "@/components/Auth0Provider";
-import { CalendarDays, Check, LoaderCircle, Mail, Upload } from "lucide-react";
+import { CalendarDays, Check, Download, LoaderCircle, Mail, Trash2, Upload } from "lucide-react";
 import { useEffect, useState, type ChangeEvent, type FormEvent } from "react";
 import PayPalUpgradeButton from "@/components/PayPalUpgradeButton";
 import { COUNTRY_OPTIONS, PHONE_CODE_OPTIONS, countryFlag, splitInternationalPhone } from "@/lib/country-options";
 import { prepareVoicePrompt } from "@/lib/voice-prompt-client";
 import { isVoicePromptManager, VOICE_PROMPT_MANAGER_EMAIL } from "@/lib/voice-prompt-access";
+import { LOCAL_TEST_USER_ID } from "@/lib/local-test-auth";
 import { MAX_USER_MEMORIES, MAX_USER_MEMORY_CHARS } from "@/lib/user-memory";
 import { MAX_PROFILE_PICTURE_BYTES, PROFILE_PICTURE_TYPES } from "@/lib/profile-picture";
 
@@ -48,6 +49,12 @@ export default function AccountSettingsPage() {
   const [isPreparingVoiceSample, setIsPreparingVoiceSample] = useState(false);
   const [voiceSampleMessage, setVoiceSampleMessage] = useState("");
   const [voiceSampleError, setVoiceSampleError] = useState("");
+  const [isExportingAccounts, setIsExportingAccounts] = useState(false);
+  const [accountExportError, setAccountExportError] = useState("");
+  const [deleteAccountConfirmation, setDeleteAccountConfirmation] = useState("");
+  const [deleteAccountConfirmationTarget, setDeleteAccountConfirmationTarget] = useState<string | null>(null);
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+  const [deleteAccountError, setDeleteAccountError] = useState("");
   const [userMemories, setUserMemories] = useState<UserMemory[]>([]);
   const [memoryInput, setMemoryInput] = useState("");
   const [memoryError, setMemoryError] = useState("");
@@ -68,6 +75,7 @@ export default function AccountSettingsPage() {
       user?.picture ||
       "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=200&q=80",
   };
+  const accountDeletionName = deleteAccountConfirmationTarget ?? accountProfile.name;
 
   useEffect(() => {
     try {
@@ -357,6 +365,64 @@ export default function AccountSettingsPage() {
     }
   }
 
+  async function exportAccounts() {
+    setIsExportingAccounts(true);
+    setAccountExportError("");
+    try {
+      const token = await getAccessTokenSilently();
+      const response = await fetch("/api/admin/accounts", {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Could not export the account list.");
+
+      const blob = new Blob([JSON.stringify(result, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `teller-accounts-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.append(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    } catch (error) {
+      setAccountExportError(error instanceof Error ? error.message : "Could not export the account list.");
+    } finally {
+      setIsExportingAccounts(false);
+    }
+  }
+
+  async function deleteAccount() {
+    setIsDeletingAccount(true);
+    setDeleteAccountError("");
+    try {
+      const token = await getAccessTokenSilently();
+      const response = await fetch("/api/account/delete", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ confirmationName: deleteAccountConfirmation }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        if (typeof result.retryConfirmationName === "string") {
+          setDeleteAccountConfirmationTarget(result.retryConfirmationName);
+          setDeleteAccountConfirmation("");
+        }
+        throw new Error(result.error || "Could not delete the account.");
+      }
+      localStorage.removeItem(preferencesKey);
+      await logout({ logoutParams: { returnTo: window.location.origin } });
+    } catch (error) {
+      setDeleteAccountError(error instanceof Error ? error.message : "Could not delete the account.");
+    } finally {
+      setIsDeletingAccount(false);
+    }
+  }
+
   async function saveMemory(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const memory = memoryInput.trim();
@@ -538,6 +604,29 @@ export default function AccountSettingsPage() {
         )}
 
         <div className="mt-8 space-y-6">
+          {isAuthenticated && canManageVoiceSample && (
+            <section className="rounded-xl border border-neutral-800 bg-neutral-950 p-5">
+              <h2 className="text-lg font-semibold">Registered account list</h2>
+              <p className="mt-2 text-sm text-neutral-400">
+                Download a JSON file with each registered account&apos;s email, name, plan, country, phone number, and account update time.
+              </p>
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => void exportAccounts()}
+                  disabled={isExportingAccounts}
+                  className="inline-flex items-center gap-2 rounded-lg bg-white px-4 py-2 text-sm font-medium text-black disabled:cursor-wait disabled:opacity-60"
+                >
+                  {isExportingAccounts
+                    ? <LoaderCircle aria-hidden="true" className="h-4 w-4 animate-spin" />
+                    : <Download aria-hidden="true" className="h-4 w-4" />}
+                  {isExportingAccounts ? "Preparing export..." : "Download account list"}
+                </button>
+                {accountExportError && <span role="alert" className="text-sm text-red-400">{accountExportError}</span>}
+              </div>
+            </section>
+          )}
+
           <section className="rounded-xl border border-neutral-800 bg-neutral-950 p-5">
             <h2 className="text-lg font-semibold">Personal details</h2>
             <div className="mt-4 space-y-4 text-sm text-neutral-300">
@@ -696,7 +785,7 @@ export default function AccountSettingsPage() {
                 <div>
                   <h2 className="text-lg font-semibold">Saved AI memory</h2>
                   <p className="mt-2 max-w-2xl text-sm text-neutral-400">
-                    Only details you add here or explicitly ask Teller AI to remember are saved. They can personalize future chats across Teller AI, CyberMaps, and CyberMail. Review or delete them at any time.
+                    Only details you add here or explicitly ask Teller to remember are saved. They can personalize future chats across Teller, CyberMaps, and CyberMail. Review or delete them at any time.
                   </p>
                 </div>
                 {userMemories.length > 0 && (
@@ -827,6 +916,49 @@ export default function AccountSettingsPage() {
               </label>
             </div>
           </section>
+
+          {isAuthenticated && user?.sub !== LOCAL_TEST_USER_ID && (
+            <section className="rounded-xl border border-red-900/60 bg-red-950/20 p-5">
+              <h2 className="text-lg font-semibold text-red-200">Delete account</h2>
+              <p className="mt-2 text-sm text-neutral-300">
+                This permanently deletes your Teller profile, chats, uploaded and generated media, memories, usage data, personal voice sample, and saved Google connection, then removes your Auth0 login. This cannot be undone.
+              </p>
+              <p className="mt-2 text-sm text-amber-200">
+                Deleting your account does not cancel a paid subscription. Cancel billing separately before proceeding.
+              </p>
+              <form
+                className="mt-4 space-y-3"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void deleteAccount();
+                }}
+              >
+                <label htmlFor="delete-account-name" className="block text-sm text-neutral-300">
+                  Type <span className="font-semibold text-white">{accountDeletionName}</span> to confirm.
+                </label>
+                <input
+                  id="delete-account-name"
+                  autoComplete="off"
+                  spellCheck={false}
+                  value={deleteAccountConfirmation}
+                  onChange={(event) => setDeleteAccountConfirmation(event.target.value)}
+                  disabled={isDeletingAccount}
+                  className="w-full rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-white outline-none focus:border-red-400"
+                />
+                <button
+                  type="submit"
+                  disabled={isDeletingAccount || deleteAccountConfirmation.trim() !== accountDeletionName}
+                  className="inline-flex items-center gap-2 rounded-lg bg-red-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isDeletingAccount
+                    ? <LoaderCircle aria-hidden="true" className="h-4 w-4 animate-spin" />
+                    : <Trash2 aria-hidden="true" className="h-4 w-4" />}
+                  {isDeletingAccount ? "Deleting account..." : "Permanently delete account"}
+                </button>
+                {deleteAccountError && <p role="alert" className="text-sm text-red-300">{deleteAccountError}</p>}
+              </form>
+            </section>
+          )}
 
           <div className="flex items-center justify-end gap-3 pt-2">
             {saveMessage && <span className="text-sm text-emerald-400">{saveMessage}</span>}
