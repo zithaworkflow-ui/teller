@@ -220,6 +220,10 @@ function getIntegrationCategory(toolkit: IntegrationToolkit): IntegrationCategor
   return "Other";
 }
 
+function getIntegrationDescription(toolkit: IntegrationToolkit) {
+  return toolkit.description.trim() || `Connect ${toolkit.name} so Grope can work with it from chat.`;
+}
+
 function isToolkitInstalled(toolkit: IntegrationToolkit) {
   return toolkit.connected || (toolkit.autoInstalled === true && toolkit.requiresLogin !== true);
 }
@@ -3057,7 +3061,7 @@ export default function ChatWindow() {
                       <div className="mb-3 flex items-center justify-between gap-3">
                         <div>
                           <h2 id="installed-tools-heading" className="text-lg font-semibold text-white">Installed addons</h2>
-                          <p className="mt-1 text-sm text-neutral-500">Connected apps ready for Teller to use.</p>
+                          <p className="mt-1 text-sm text-neutral-500">Connected apps ready for Grope to use.</p>
                         </div>
                         <span className="rounded-full border border-neutral-700 px-2.5 py-1 text-xs text-neutral-400">
                           {integrationToolkits.filter(isToolkitInstalled).length} installed
@@ -3074,29 +3078,34 @@ export default function ChatWindow() {
                           .map((toolkit) => (
                             <article
                               key={toolkit.slug}
-                              className="flex w-64 shrink-0 items-center gap-3 rounded-2xl border border-emerald-900/60 bg-neutral-900 p-3"
+                              className="flex w-64 shrink-0 flex-col gap-3 rounded-2xl border border-emerald-900/60 bg-neutral-900 p-3"
                             >
-                              <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-neutral-700 bg-neutral-800">
-                                <Image
-                                  src={getIntegrationLogoUrl(toolkit)}
-                                  alt=""
-                                  width={48}
-                                  height={48}
-                                  unoptimized
-                                  className="h-full w-full object-contain"
-                                />
-                              </span>
-                              <div className="min-w-0 flex-1">
-                                <h3 className="truncate text-sm font-semibold text-white">{toolkit.name}</h3>
-                                <p className="mt-0.5 text-xs text-emerald-300">Installed</p>
+                              <div className="flex items-start gap-3">
+                                <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-neutral-700 bg-neutral-800">
+                                  <Image
+                                    src={getIntegrationLogoUrl(toolkit)}
+                                    alt=""
+                                    width={48}
+                                    height={48}
+                                    unoptimized
+                                    className="h-full w-full object-contain"
+                                  />
+                                </span>
+                                <div className="min-w-0 flex-1">
+                                  <h3 className="truncate text-sm font-semibold text-white">{toolkit.name}</h3>
+                                  <p className="mt-0.5 text-xs text-emerald-300">Installed</p>
+                                </div>
                               </div>
+                              <p className="line-clamp-2 min-h-8 text-xs leading-4 text-neutral-400">
+                                {getIntegrationDescription(toolkit)}
+                              </p>
                               <button
                                 type="button"
                                 onClick={() => toolkit.connected
                                   ? void disconnectComposioToolkit(toolkit)
                                   : uninstallAutoInstalledToolkit(toolkit)}
                                 disabled={connectingToolkit !== null}
-                                className="shrink-0 rounded-full border border-neutral-700 px-2.5 py-1.5 text-xs font-medium text-neutral-300 transition hover:border-rose-800 hover:text-rose-300 disabled:cursor-not-allowed disabled:opacity-50"
+                                className="self-start rounded-full border border-neutral-700 px-2.5 py-1.5 text-xs font-medium text-neutral-300 transition hover:border-rose-800 hover:text-rose-300 disabled:cursor-not-allowed disabled:opacity-50"
                                 aria-label={`Uninstall ${toolkit.name}`}
                               >
                                 {connectingToolkit === toolkit.slug ? "Removing..." : "Uninstall"}
@@ -3167,9 +3176,9 @@ export default function ChatWindow() {
                                     </div>
                                     {isToolkitInstalled(toolkit) && <Check size={17} className="mt-0.5 shrink-0 text-emerald-300" aria-label="Installed" />}
                                   </div>
-                                  {toolkit.description && (
-                                    <p className="mt-3 line-clamp-3 flex-1 text-sm leading-5 text-neutral-400">{toolkit.description}</p>
-                                  )}
+                                  <p className="mt-3 line-clamp-3 flex-1 text-sm leading-5 text-neutral-400">
+                                    {getIntegrationDescription(toolkit)}
+                                  </p>
                                   <button
                                     type="button"
                                     onClick={() => isToolkitInstalled(toolkit)
