@@ -351,10 +351,13 @@ async function runParallelResearch(
             "Use web_decisions only when the user asks for it, a probability, a choice among options, or a score.",
             "Use image_search when the user asks to find, search for, or browse existing images from the web. Do not use it to create or edit images; those use the app's separate image-generation workflow.",
             composioSessionId
-              ? discoveredComposioTools.size > 0
-                ? "Treat user references to add-ons, apps, integrations, connectors, or skills as connected-app tasks. Continue using the tools and schemas discovered in the Composio handoff. Search again only if another requested app task is not covered. Reuse the returned session identifier. If a toolkit is not connected, use COMPOSIO_MANAGE_CONNECTIONS and show its authorization link; do not claim the requested app task is complete until execution succeeds."
-                : "Treat user references to add-ons, apps, integrations, connectors, or skills as connected-app tasks. Use Composio for them: call COMPOSIO_SEARCH_TOOLS first with atomic queries for every requested app task, then use its exact returned tool slugs and schemas. Reuse its session identifier for schemas, connection management, and execution. If a toolkit is not connected, use COMPOSIO_MANAGE_CONNECTIONS and show its authorization link; do not claim the requested app task is complete until execution succeeds."
-              : "Connected-app tools are unavailable until the user signs in and Composio is configured. Do not claim to have completed app actions.",
+              ? [
+                  discoveredComposioTools.size > 0
+                    ? "Treat user references to add-ons, apps, integrations, connectors, or skills as connected-app tasks. Continue using the tools and schemas discovered in the Composio handoff. Search again only if another requested app task is not covered. Reuse the returned session identifier."
+                    : "Treat user references to add-ons, apps, integrations, connectors, or skills as connected-app tasks. Use Composio for them: call COMPOSIO_SEARCH_TOOLS first with atomic queries for every requested app task, then use its exact returned tool slugs and schemas. Reuse its session identifier for schemas, connection management, and execution.",
+                  "Do not claim you cannot access or summarize private Gmail or other connected-app data merely because it is private. Use only data returned by this authorized Composio session. If the requested app is not connected, use COMPOSIO_MANAGE_CONNECTIONS and explain that authorization is required. Do not ask the user to paste private messages solely because they are private, and never claim an action or summary is complete without successful tool results.",
+                ].join(" ")
+              : "Connected-app tools are unavailable until the user signs in and Composio is configured. Be transparent that the connector must be configured or authorized before you can access app data; do not claim to have completed app actions or ask the user to paste private messages solely because they are private.",
             activeComposioSkills.size > 0
               ? [
                   "Active Composio connector skills:",
