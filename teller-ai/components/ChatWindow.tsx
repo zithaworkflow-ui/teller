@@ -113,7 +113,68 @@ type IntegrationToolkit = {
   description: string;
   logo: string | null;
   connected: boolean;
+  accountId?: string | null;
+  autoInstalled?: boolean;
+  requiresLogin?: boolean;
 };
+
+const INTEGRATION_CATEGORIES = [
+  "Productivity & Workflow",
+  "Developer Tools & Coding",
+  "Creativity & Design",
+  "Data & Analytics",
+  "Business, Sales & Marketing",
+  "Everyday Errands & Lifestyle",
+] as const;
+
+type IntegrationCategory = (typeof INTEGRATION_CATEGORIES)[number] | "Other";
+
+const CATEGORY_KEYWORDS: Record<Exclude<IntegrationCategory, "Other">, string[]> = {
+  "Productivity & Workflow": [
+    "google drive", "gdrive", "gmail", "google calendar", "googlecalendar", "gcal",
+    "google docs", "googledocs", "google sheets", "googlesheets", "notion", "dropbox",
+    "outlook", "todoist", "onedrive", "microsoft", "teams", "slack", "trello",
+    "asana", "monday", "evernote", "airtable", "basecamp", "clickup", "confluence",
+  ],
+  "Developer Tools & Coding": [
+    "github", "gitlab", "bitbucket", "supabase", "vercel", "softr", "base44",
+    "netlify", "render", "railway", "firebase", "postgres", "mysql", "mongodb",
+    "redis", "replit", "docker", "sentry", "postman", "digitalocean", "aws",
+    "linear", "jira", "codesandbox", "cloudflare", "huggingface",
+  ],
+  "Creativity & Design": [
+    "canva", "figma", "adobe", "runway", "gamma", "freepik", "unsplash",
+    "midjourney", "loom", "miro", "spotify", "youtube", "picsart", "capcut",
+  ],
+  "Data & Analytics": [
+    "snowflake", "databricks", "bigquery", "tableau", "looker", "metabase",
+    "powerbi", "googleanalytics", "mixpanel", "amplitude", "segment", "mode",
+    "hex", "dbt", "redash", "dune", "graph", "chart",
+  ],
+  "Business, Sales & Marketing": [
+    "salesforce", "hubspot", "pipedrive", "zoho", "intercom", "zendesk",
+    "mailchimp", "linkedin", "typeform", "calendly", "zoom", "meet", "crm",
+    "marketing", "campaign", "apollo", "klaviyo", "stripe", "paypal",
+  ],
+  "Everyday Errands & Lifestyle": [
+    "opentable", "instacart", "doordash", "uber", "booking", "lyft", "grubhub",
+    "deliveroo", "yelp", "eventbrite", "airbnb", "expedia", "travel",
+  ],
+};
+
+function getIntegrationCategory(toolkit: IntegrationToolkit): IntegrationCategory {
+  const haystack = `${toolkit.slug} ${toolkit.name}`.toLocaleLowerCase();
+  for (const category of INTEGRATION_CATEGORIES) {
+    if (CATEGORY_KEYWORDS[category].some((keyword) => haystack.includes(keyword))) {
+      return category;
+    }
+  }
+  return "Other";
+}
+
+function isToolkitInstalled(toolkit: IntegrationToolkit) {
+  return toolkit.connected || (toolkit.autoInstalled === true && toolkit.requiresLogin !== true);
+}
 
 const GOOGLE_MAPS_EMBED_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_EMBED_API_KEY || "";
 
@@ -757,6 +818,7 @@ export default function ChatWindow() {
   const [isLoadingIntegrations, setIsLoadingIntegrations] = useState(false);
   const [integrationError, setIntegrationError] = useState("");
   const [integrationSearchQuery, setIntegrationSearchQuery] = useState("");
+  const [integrationCategory, setIntegrationCategory] = useState<IntegrationCategory | "All">("All");
   const [connectingToolkit, setConnectingToolkit] = useState<string | null>(null);
   const [integrationRefreshKey, setIntegrationRefreshKey] = useState(0);
   const [generatedImages, setGeneratedImages] = useState<GeneratedImage[]>([]);
@@ -1174,7 +1236,22 @@ export default function ChatWindow() {
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || "Could not load app connectors.");
         if (!Array.isArray(data.toolkits)) throw new Error("The app connector response was invalid.");
-        if (!cancelled) setIntegrationToolkits(data.toolkits as IntegrationToolkit[]);
+        if (!cancelled) {
+          let disabledAutoInstallSlugs = new Set<string>();
+          try {
+            const saved = JSON.parse(window.localStorage.getItem("grope-disabled-auto-addons") || "[]");
+            if (Array.isArray(saved)) disabledAutoInstallSlugs = new Set(saved.filter((slug): slug is string => typeof slug === "string"));
+          } catch {
+            disabledAutoInstallSlugs = new Set<string>();
+          }
+          setIntegrationToolkits(
+            (data.toolkits as IntegrationToolkit[]).map((toolkit) => (
+              disabledAutoInstallSlugs.has(toolkit.slug)
+                ? { ...toolkit, autoInstalled: false }
+                : toolkit
+            )),
+          );
+        }
       } catch (error) {
         if (!cancelled) setIntegrationError(getErrorMessage(error));
       } finally {
@@ -1380,6 +1457,22 @@ export default function ChatWindow() {
     setIsSidebarOpen(false);
   }
 
+  function uninstallAutoInstalledToolkit(toolkit: IntegrationToolkit) {
+    setIntegrationToolkits((current) => current.map((item) => (
+      item.slug === toolkit.slug ? { ...item, autoInstalled: false } : item
+    )));
+    try {
+      const saved = JSON.parse(window.localStorage.getItem("grope-disabled-auto-addons") || "[]");
+      const disabled = new Set(Array.isArray(saved)
+        ? saved.filter((slug): slug is string => typeof slug === "string")
+        : []);
+      disabled.add(toolkit.slug);
+      window.localStorage.setItem("grope-disabled-auto-addons", JSON.stringify(Array.from(disabled)));
+    } catch {
+      window.localStorage.setItem("grope-disabled-auto-addons", JSON.stringify([toolkit.slug]));
+    }
+  }
+
   async function connectComposioToolkit(toolkit: string) {
     setConnectingToolkit(toolkit);
     setIntegrationError("");
@@ -1400,6 +1493,37 @@ export default function ChatWindow() {
       window.location.assign(data.redirectUrl);
     } catch (error) {
       setIntegrationError(getErrorMessage(error));
+      setConnectingToolkit(null);
+    }
+  }
+
+  async function disconnectComposioToolkit(toolkit: IntegrationToolkit) {
+    if (!toolkit.accountId) {
+      setIntegrationError("Composio did not return an account ID for this installed app.");
+      return;
+    }
+    setConnectingToolkit(toolkit.slug);
+    setIntegrationError("");
+    try {
+      const token = await getAccessTokenSilently();
+      const response = await fetch("/api/composio/disconnect", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ accountId: toolkit.accountId }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not uninstall the app connector.");
+      setIntegrationToolkits((current) => current.map((item) => (
+        item.slug === toolkit.slug
+          ? { ...item, connected: false, accountId: null }
+          : item
+      )));
+    } catch (error) {
+      setIntegrationError(getErrorMessage(error));
+    } finally {
       setConnectingToolkit(null);
     }
   }
@@ -2852,6 +2976,76 @@ export default function ChatWindow() {
                     </button>
                   </div>
 
+                  <div className="mb-6 flex gap-2 overflow-x-auto pb-1 modern-scroll" aria-label="Integration categories">
+                    {(["All", ...INTEGRATION_CATEGORIES, "Other"] as Array<IntegrationCategory | "All">).map((category) => (
+                      <button
+                        key={category}
+                        type="button"
+                        onClick={() => setIntegrationCategory(category)}
+                        className={`shrink-0 rounded-full border px-3 py-1.5 text-sm transition ${
+                          integrationCategory === category
+                            ? "border-neutral-300 bg-neutral-100 text-neutral-950"
+                            : "border-neutral-700 text-neutral-300 hover:bg-neutral-800"
+                        }`}
+                        aria-pressed={integrationCategory === category}
+                      >
+                        {category}
+                      </button>
+                    ))}
+                  </div>
+
+                  {!isLoadingIntegrations && integrationToolkits.some(isToolkitInstalled) && (
+                    <section className="mb-8" aria-labelledby="installed-tools-heading">
+                      <div className="mb-3 flex items-center justify-between gap-3">
+                        <div>
+                          <h2 id="installed-tools-heading" className="text-lg font-semibold text-white">Installed addons</h2>
+                          <p className="mt-1 text-sm text-neutral-500">Connected apps ready for Teller to use.</p>
+                        </div>
+                        <span className="rounded-full border border-neutral-700 px-2.5 py-1 text-xs text-neutral-400">
+                          {integrationToolkits.filter(isToolkitInstalled).length} installed
+                        </span>
+                      </div>
+                      <div className="flex gap-3 overflow-x-auto pb-2 modern-scroll">
+                        {integrationToolkits
+                          .filter(isToolkitInstalled)
+                          .filter((toolkit) => (
+                            !integrationSearchQuery.trim() ||
+                            toolkit.name.toLocaleLowerCase().includes(integrationSearchQuery.trim().toLocaleLowerCase()) ||
+                            toolkit.slug.toLocaleLowerCase().includes(integrationSearchQuery.trim().toLocaleLowerCase())
+                          ))
+                          .map((toolkit) => (
+                            <article
+                              key={toolkit.slug}
+                              className="flex w-64 shrink-0 items-center gap-3 rounded-2xl border border-emerald-900/60 bg-neutral-900 p-3"
+                            >
+                              <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-neutral-700 bg-neutral-800">
+                                {toolkit.logo ? (
+                                  <Image src={toolkit.logo} alt="" width={48} height={48} unoptimized className="h-full w-full object-contain" />
+                                ) : (
+                                  <Wrench size={20} className="text-neutral-300" aria-hidden="true" />
+                                )}
+                              </span>
+                              <div className="min-w-0 flex-1">
+                                <h3 className="truncate text-sm font-semibold text-white">{toolkit.name}</h3>
+                                <p className="mt-0.5 text-xs text-emerald-300">Installed</p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => toolkit.connected
+                                  ? void disconnectComposioToolkit(toolkit)
+                                  : uninstallAutoInstalledToolkit(toolkit)}
+                                disabled={connectingToolkit !== null}
+                                className="shrink-0 rounded-full border border-neutral-700 px-2.5 py-1.5 text-xs font-medium text-neutral-300 transition hover:border-rose-800 hover:text-rose-300 disabled:cursor-not-allowed disabled:opacity-50"
+                                aria-label={`Uninstall ${toolkit.name}`}
+                              >
+                                {connectingToolkit === toolkit.slug ? "Removing..." : "Uninstall"}
+                              </button>
+                            </article>
+                          ))}
+                      </div>
+                    </section>
+                  )}
+
                   {isLoadingIntegrations && integrationToolkits.length === 0 ? (
                     <div className="flex items-center justify-center gap-2 py-16 text-neutral-400" role="status">
                       <LoaderCircle size={18} className="animate-spin" aria-hidden="true" />
@@ -2862,56 +3056,94 @@ export default function ChatWindow() {
                       No app integrations are currently available.
                     </p>
                   ) : (
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                      {integrationToolkits
-                        .filter((toolkit) => (
-                          !integrationSearchQuery.trim() ||
-                          toolkit.name.toLocaleLowerCase().includes(integrationSearchQuery.trim().toLocaleLowerCase()) ||
-                          toolkit.slug.toLocaleLowerCase().includes(integrationSearchQuery.trim().toLocaleLowerCase())
-                        ))
-                        .map((toolkit) => (
-                          <article key={toolkit.slug} className="flex min-h-44 flex-col rounded-2xl border border-neutral-800 bg-neutral-900 p-4">
-                            <div className="flex items-start gap-3">
-                              <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-neutral-700 bg-neutral-800">
-                                {toolkit.logo ? (
-                                  <Image
-                                    src={toolkit.logo}
-                                    alt=""
-                                    width={40}
-                                    height={40}
-                                    unoptimized
-                                    className="h-full w-full object-contain"
-                                  />
-                                ) : (
-                                  <Wrench size={18} className="text-neutral-300" aria-hidden="true" />
-                                )}
+                    <div className="space-y-8">
+                      {([...INTEGRATION_CATEGORIES, "Other"] as IntegrationCategory[])
+                        .map((category) => ({
+                          category,
+                          toolkits: integrationToolkits.filter((toolkit) => (
+                            getIntegrationCategory(toolkit) === category &&
+                            (integrationCategory === "All" || integrationCategory === category) &&
+                            (!integrationSearchQuery.trim() ||
+                              toolkit.name.toLocaleLowerCase().includes(integrationSearchQuery.trim().toLocaleLowerCase()) ||
+                              toolkit.slug.toLocaleLowerCase().includes(integrationSearchQuery.trim().toLocaleLowerCase()))
+                          )),
+                        }))
+                        .filter(({ toolkits }) => toolkits.length > 0)
+                        .map(({ category, toolkits }) => (
+                          <section key={category} aria-labelledby={`integration-category-${category.replace(/[^a-zA-Z0-9]+/g, "-").toLocaleLowerCase()}`}>
+                            <div className="mb-3 flex items-center gap-3">
+                              <h2
+                                id={`integration-category-${category.replace(/[^a-zA-Z0-9]+/g, "-").toLocaleLowerCase()}`}
+                                className="text-lg font-semibold text-white"
+                              >
+                                {category}
+                              </h2>
+                              <span className="rounded-full border border-neutral-800 px-2 py-0.5 text-xs text-neutral-500">
+                                {toolkits.length}
                               </span>
-                              <div className="min-w-0 flex-1">
-                                <h2 className="truncate font-semibold text-white">{toolkit.name}</h2>
-                                <p className="mt-1 text-xs text-neutral-500">{toolkit.connected ? "Connected" : "Not connected"}</p>
-                              </div>
-                              {toolkit.connected && <Check size={17} className="mt-0.5 shrink-0 text-emerald-300" aria-label="Connected" />}
                             </div>
-                            {toolkit.description && (
-                              <p className="mt-3 line-clamp-3 flex-1 text-sm leading-5 text-neutral-400">{toolkit.description}</p>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => void connectComposioToolkit(toolkit.slug)}
-                              disabled={connectingToolkit !== null}
-                              className="mt-4 self-start rounded-full border border-neutral-700 px-4 py-2 text-sm font-medium text-neutral-200 transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50"
-                            >
-                              {connectingToolkit === toolkit.slug
-                                ? "Connecting..."
-                                : toolkit.connected ? "Reconnect" : "Connect"}
-                            </button>
-                          </article>
+                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                              {toolkits.map((toolkit) => (
+                                <article key={toolkit.slug} className="flex min-h-44 flex-col rounded-2xl border border-neutral-800 bg-neutral-900 p-4">
+                                  <div className="flex items-start gap-3">
+                                    <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-neutral-700 bg-neutral-800">
+                                      {toolkit.logo ? (
+                                        <Image
+                                          src={toolkit.logo}
+                                          alt=""
+                                          width={40}
+                                          height={40}
+                                          unoptimized
+                                          className="h-full w-full object-contain"
+                                        />
+                                      ) : (
+                                        <Wrench size={18} className="text-neutral-300" aria-hidden="true" />
+                                      )}
+                                    </span>
+                                    <div className="min-w-0 flex-1">
+                                      <h3 className="truncate font-semibold text-white">{toolkit.name}</h3>
+                                      <p className="mt-1 text-xs text-neutral-500">
+                                        {isToolkitInstalled(toolkit)
+                                          ? (toolkit.connected ? "Connected" : "Installed")
+                                          : "Not installed"}
+                                      </p>
+                                    </div>
+                                    {isToolkitInstalled(toolkit) && <Check size={17} className="mt-0.5 shrink-0 text-emerald-300" aria-label="Installed" />}
+                                  </div>
+                                  {toolkit.description && (
+                                    <p className="mt-3 line-clamp-3 flex-1 text-sm leading-5 text-neutral-400">{toolkit.description}</p>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => isToolkitInstalled(toolkit)
+                                      ? (toolkit.connected
+                                        ? void disconnectComposioToolkit(toolkit)
+                                        : uninstallAutoInstalledToolkit(toolkit))
+                                      : void connectComposioToolkit(toolkit.slug)}
+                                    disabled={connectingToolkit !== null}
+                                    className={`mt-4 self-start rounded-full border px-4 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                                      isToolkitInstalled(toolkit)
+                                        ? "border-neutral-700 text-neutral-300 hover:border-rose-800 hover:text-rose-300"
+                                        : "border-neutral-700 text-neutral-200 hover:bg-neutral-800"
+                                    }`}
+                                  >
+                                    {connectingToolkit === toolkit.slug
+                                      ? (isToolkitInstalled(toolkit) ? "Uninstalling..." : "Installing...")
+                                      : isToolkitInstalled(toolkit) ? "Uninstall" : "Install"}
+                                  </button>
+                                </article>
+                              ))}
+                            </div>
+                          </section>
                         ))}
                     </div>
                   )}
                   {!isLoadingIntegrations && integrationToolkits.length > 0 && integrationSearchQuery.trim() && !integrationToolkits.some((toolkit) => (
-                    toolkit.name.toLocaleLowerCase().includes(integrationSearchQuery.trim().toLocaleLowerCase()) ||
-                    toolkit.slug.toLocaleLowerCase().includes(integrationSearchQuery.trim().toLocaleLowerCase())
+                    (integrationCategory === "All" || getIntegrationCategory(toolkit) === integrationCategory) &&
+                    (
+                      toolkit.name.toLocaleLowerCase().includes(integrationSearchQuery.trim().toLocaleLowerCase()) ||
+                      toolkit.slug.toLocaleLowerCase().includes(integrationSearchQuery.trim().toLocaleLowerCase())
+                    )
                   )) && (
                     <p className="py-12 text-center text-sm text-neutral-400">No integrations match that search.</p>
                   )}
@@ -3383,7 +3615,7 @@ export default function ChatWindow() {
               messages.every((message) => message.role !== "user") &&
               messages.length > 0 && (
                 <section aria-label="Example prompts" className="rounded-2xl border border-sky-400/15 bg-sky-400/[0.03] p-4">
-                  <p className="mb-3 text-xs font-medium text-neutral-400">Try asking Teller</p>
+                  <p className="mb-3 text-xs font-medium text-neutral-400">Try asking Grope</p>
                   <div className="flex flex-wrap gap-2">
                     {[
                       "Explain how black holes form in simple terms",

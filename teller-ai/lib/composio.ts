@@ -16,6 +16,9 @@ export type ComposioToolkit = {
   description: string;
   logo: string | null;
   connected: boolean;
+  accountId: string | null;
+  autoInstalled: boolean;
+  requiresLogin: boolean;
 };
 
 export type ComposioSessionTool = {
@@ -204,8 +207,93 @@ function normalizeToolkit(value: unknown): ComposioToolkit | null {
   }
 
   const connection = isRecord(value.connection) ? value.connection : {};
-  const connectedAccount = connection.connected_account ?? connection.connectedAccount;
-  const logo = typeof value.logo === "string" ? value.logo : null;
+  const meta = isRecord(value.meta) ? value.meta : null;
+  const account = isRecord(value.account) ? value.account : null;
+  const authSchemes = [
+    value.auth_schemes,
+    value.authSchemes,
+    value.auth_scheme,
+    value.authScheme,
+    value.auth_methods,
+    value.authMethods,
+  ].flatMap((candidate) => Array.isArray(candidate) ? candidate : [candidate]);
+  const requiresLogin =
+    value.requires_auth === true ||
+    value.requiresAuth === true ||
+    value.authentication_required === true ||
+    value.authenticationRequired === true ||
+    authSchemes.some((scheme) => (
+      typeof scheme === "string"
+        ? /oauth|api.?key|bearer|basic|login|credential/i.test(scheme)
+        : isRecord(scheme) && typeof scheme.type === "string"
+          ? /oauth|api.?key|bearer|basic|login|credential/i.test(scheme.type)
+          : false
+    ));
+  const accountIdCandidate =
+    connection.id ??
+    connection.connected_account_id ??
+    connection.connectedAccountId ??
+    connection.account_id ??
+    connection.accountId ??
+    value.connected_account_id ??
+    value.connectedAccountId ??
+    value.account_id ??
+    value.accountId ??
+    account?.id;
+  const accountId = typeof accountIdCandidate === "string" && accountIdCandidate
+    ? accountIdCandidate
+    : null;
+  const logoObject = isRecord(value.logo) ? value.logo : null;
+  const connectedAccount =
+    connection.connected_account ??
+    connection.connectedAccount ??
+    connection.account ??
+    value.connected_account ??
+    value.connectedAccount ??
+    value.account;
+  const connectedAccounts =
+    connection.connected_accounts ??
+    connection.connectedAccounts ??
+    value.connected_accounts ??
+    value.connectedAccounts;
+  const status = [
+    connection.status,
+    connection.connection_status,
+    connection.connectionStatus,
+    value.status,
+    value.connection_status,
+    value.connectionStatus,
+  ].find((candidate) => typeof candidate === "string");
+  const normalizedStatus = typeof status === "string" ? status.toLowerCase() : "";
+  const connected =
+    value.connected === true ||
+    value.is_connected === true ||
+    value.isConnected === true ||
+    connection.is_active === true ||
+    connection.isActive === true ||
+    connection.connected === true ||
+    connection.is_connected === true ||
+    normalizedStatus === "connected" ||
+    normalizedStatus === "active" ||
+    Boolean(connectedAccount) ||
+    (Array.isArray(connectedAccounts) && connectedAccounts.length > 0);
+
+  const logoCandidates = [
+    value.logo,
+    value.logo_url,
+    value.logoUrl,
+    value.icon,
+    value.icon_url,
+    value.iconUrl,
+    value.image,
+    logoObject?.url,
+    logoObject?.uri,
+    logoObject?.src,
+    meta?.logo,
+    meta?.logo_url,
+    meta?.icon,
+  ];
+  const logo = logoCandidates.find((candidate): candidate is string => typeof candidate === "string" && candidate.length > 0) ?? null;
   let safeLogo: string | null = null;
   if (logo) {
     try {
@@ -221,7 +309,10 @@ function normalizeToolkit(value: unknown): ComposioToolkit | null {
     name: value.name,
     description: typeof value.description === "string" ? value.description : "",
     logo: safeLogo,
-    connected: (connection.is_active === true || connection.isActive === true) && Boolean(connectedAccount),
+    connected,
+    accountId,
+    autoInstalled: false,
+    requiresLogin,
   };
 }
 
@@ -258,6 +349,71 @@ export async function listComposioToolkits(userId: string) {
     }
   } while (cursor);
 
+  const autoInstalledDocumentToolkits = new Set([
+    "google_drive",
+    "googledrive",
+    "google_docs",
+    "googledocs",
+    "google_sheets",
+    "googlesheets",
+    "dropbox",
+    "onedrive",
+    "notion",
+    "box",
+    "confluence",
+  ]);
+  toolkits.forEach((toolkit) => {
+    if (toolkit.requiresLogin) {
+      toolkit.autoInstalled = false;
+      return;
+    }
+    const key = toolkit.slug.toLowerCase().replace(/[^a-z0-9]/g, "_");
+    const name = toolkit.name.toLowerCase();
+    toolkit.autoInstalled =
+      autoInstalledDocumentToolkits.has(key) ||
+      /\b(document|documents|file|files|drive|docs|sheets|dropbox|onedrive|notion|box)\b/i.test(name);
+  });
+
+  if (toolkits.some((toolkit) => toolkit.connected && !toolkit.accountId)) {
+    try {
+      const accountQuery = new URLSearchParams({
+        limit: "100",
+        statuses: "ACTIVE",
+        user_ids: userId,
+      });
+      const accountPayload = await requestComposioJson(
+        `${COMPOSIO_CATALOG_URL.replace("/api/v3.1", "/api/v3")}/connected_accounts?${accountQuery.toString()}`,
+      );
+      const accounts = Array.isArray(accountPayload.items)
+        ? accountPayload.items
+        : Array.isArray(accountPayload.data)
+          ? accountPayload.data
+          : [];
+      accounts.forEach((account) => {
+        if (!isRecord(account)) return;
+        const accountId = typeof account.id === "string"
+          ? account.id
+          : typeof account.nanoid === "string"
+            ? account.nanoid
+            : null;
+        const toolkitSlug =
+          typeof account.toolkit_slug === "string"
+            ? account.toolkit_slug
+            : isRecord(account.toolkit) && typeof account.toolkit.slug === "string"
+              ? account.toolkit.slug
+              : null;
+        if (!accountId || !toolkitSlug) return;
+        const toolkit = toolkits.find((item) => item.slug.toLowerCase() === toolkitSlug.toLowerCase());
+        if (toolkit) {
+          toolkit.accountId = accountId;
+        }
+      });
+    } catch {
+      // The toolkit payload may already include account IDs; uninstall remains
+      // unavailable for the rare response that has neither.
+    }
+  }
+
   return toolkits;
 }
 
@@ -285,4 +441,13 @@ export async function createComposioConnectLink(
     throw new ComposioError("Composio returned an untrusted connection URL.");
   }
   return redirectUrl.toString();
+}
+
+export async function deleteComposioConnectedAccount(accountId: string) {
+  const apiKey = process.env.COMPOSIO_API_KEY;
+  if (!apiKey) throw new ComposioError("Composio is not configured.", 503);
+  await requestComposioJson(
+    `${COMPOSIO_CATALOG_URL}/connected_accounts/${encodeURIComponent(accountId)}`,
+    { method: "DELETE" },
+  );
 }
