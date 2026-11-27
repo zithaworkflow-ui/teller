@@ -378,13 +378,18 @@ function getVoiceContent(message: Message) {
 }
 
 function getModeGreeting(agent: AgentMode) {
-  if (agent === "cyber") {
-    return "Hi, I’m CyberMail. Connect Gmail from Tools to search and summarize email. Connect Google Calendar here to review events. I’ll ask before creating drafts or events.";
-  }
-  if (agent === "maps") {
-    return "Hi, I’m CyberMaps. Ask me to find a place or get directions, for example “directions from Cape Town Station to Table Mountain by transit.” The live map will update alongside our chat.";
-  }
   return getTellerGreeting();
+}
+
+function getGropeAgentMode(message: string): AgentMode {
+  const normalized = message.toLowerCase();
+  if (/\b(directions?|route|routes|map|maps|nearby|navigation|navigate|distance|driving|walking|cycling|transit|geocode|coordinates?|latitude|longitude)\b/.test(normalized)) {
+    return "maps";
+  }
+  if (/\b(gmail|email|e-mail|calendar|meeting|appointment|draft|inbox|unread|calendar event|google workspace)\b/.test(normalized)) {
+    return "cyber";
+  }
+  return "teller";
 }
 
 const IMAGE_ARTIFACT_PATTERN = /\b(?:pic|picture|image|photo|photograph|artwork|illustration|drawing|painting|logo|icon|avatar|poster|banner|wallpaper|diagram|graphic|thumbnail|cover art)\b/i;
@@ -1134,7 +1139,7 @@ export default function ChatWindow() {
             setHistories(remoteHistories);
             selectHistory(remoteHistories[0].id);
             setMessages(remoteHistories[0].messages);
-            setActiveAgent(remoteHistories[0].agent === "cyber" || remoteHistories[0].agent === "maps" ? remoteHistories[0].agent : "teller");
+            setActiveAgent("teller");
             setActiveMapQuery(typeof remoteHistories[0].mapQuery === "string" ? remoteHistories[0].mapQuery : "");
           } else {
             const initialMessages: Message[] = [
@@ -1205,33 +1210,7 @@ export default function ChatWindow() {
     agentQueryHandledRef.current = true;
     url.searchParams.delete("agent");
     window.history.replaceState({}, document.title, `${url.pathname}${url.search}`);
-    const modeHistory = histories.find((history) => (
-      (history.agent === "cyber" || history.agent === "maps" ? history.agent : "teller") === requestedAgent
-    ));
-    if (modeHistory) {
-      selectHistory(modeHistory.id);
-      setActiveAgent(requestedAgent);
-      setActiveMapQuery(typeof modeHistory.mapQuery === "string" ? modeHistory.mapQuery : "");
-      setMessages(modeHistory.messages);
-    } else {
-      const id = Date.now().toString();
-      const initialMessages: Message[] = [
-        { role: "assistant", content: getModeGreeting(requestedAgent), createdAt: Date.now() },
-      ];
-      const newHistory: HistoryItem = {
-        id,
-        title: "New chat",
-        agent: requestedAgent,
-        ...(requestedAgent === "maps" ? { mapQuery: "" } : {}),
-        messages: initialMessages,
-        updatedAt: Date.now(),
-      };
-      setHistories((previous) => [newHistory, ...previous]);
-      selectHistory(id);
-      setActiveAgent(requestedAgent);
-      setActiveMapQuery("");
-      setMessages(initialMessages);
-    }
+    setActiveAgent("teller");
   }, [histories, isAuthLoading, isMounted]);
 
   // Persist active history whenever messages change
@@ -1349,7 +1328,7 @@ export default function ChatWindow() {
     }
 
     selectHistory(modeHistory.id);
-    setActiveAgent(mode);
+    setActiveAgent("teller");
     setActiveMapQuery(typeof modeHistory.mapQuery === "string" ? modeHistory.mapQuery : "");
     setMessages(modeHistory.messages);
     setIsSidebarOpen(false);
@@ -1377,7 +1356,7 @@ export default function ChatWindow() {
     const next = [newItem, ...histories];
     setHistories(next);
     selectHistory(id);
-    setActiveAgent(agent);
+    setActiveAgent("teller");
     setActiveMapQuery("");
     setMessages(initialMessages);
     setIsSidebarOpen(false);
@@ -1433,7 +1412,7 @@ export default function ChatWindow() {
     const h = histories.find((x) => x.id === id);
     if (!h) return;
     selectHistory(id);
-    setActiveAgent(h.agent === "cyber" || h.agent === "maps" ? h.agent : "teller");
+    setActiveAgent("teller");
     setActiveMapQuery(typeof h.mapQuery === "string" ? h.mapQuery : "");
     setMessages(h.messages);
     setIsSidebarOpen(false);
@@ -1714,7 +1693,7 @@ export default function ChatWindow() {
     const requestHistoryId = activeHistoryIdRef.current;
     if (!requestHistoryId) return;
     if (requestHistoryId && loadingHistoryIdsRef.current.has(requestHistoryId)) return;
-    const requestAgent = activeAgent;
+    const requestAgent = getGropeAgentMode(messageText);
     const requestThinkMode = thinkMode;
     const thinkUsageLimitMessage = "Think mode uses two chats per response. Turn it off or upgrade your plan to continue.";
     const requestController = new AbortController();
@@ -1740,8 +1719,8 @@ export default function ChatWindow() {
         requestHistoryId,
         updatedMessages,
         requestAgent === "maps" && !getExplicitMemoryRequest(userMessage.content)
-          ? { agent: requestAgent, mapQuery: userMessage.content, mapEmbedUrl: null }
-          : { agent: requestAgent },
+          ? { agent: "teller", mapQuery: userMessage.content, mapEmbedUrl: null }
+          : { agent: "teller" },
       );
     }
     setPendingFile(null);
@@ -1790,7 +1769,7 @@ export default function ChatWindow() {
         };
         const nextMessages = [...updatedMessages, assistantMessage];
         if (activeHistoryIdRef.current === requestHistoryId) setMessages(nextMessages);
-        updateHistoryMessages(requestHistoryId, nextMessages, { agent: "cyber" });
+        updateHistoryMessages(requestHistoryId, nextMessages, { agent: "teller" });
         return;
       }
       if (requestAgent === "maps" && requestFile) {
@@ -1933,7 +1912,7 @@ export default function ChatWindow() {
         };
         const nextMessages = [...updatedMessages, assistantMessage];
         if (activeHistoryIdRef.current === requestHistoryId) setMessages(nextMessages);
-        updateHistoryMessages(requestHistoryId, nextMessages, { agent: requestAgent });
+        updateHistoryMessages(requestHistoryId, nextMessages, { agent: "teller" });
         return;
       }
 
@@ -2003,7 +1982,7 @@ export default function ChatWindow() {
         if (!shouldHandleOtherIntent) {
           const nextMessages = [...updatedMessages, generatedImageAssistantMessage];
           if (activeHistoryIdRef.current === requestHistoryId) setMessages(nextMessages);
-          updateHistoryMessages(requestHistoryId, nextMessages, { agent: requestAgent });
+          updateHistoryMessages(requestHistoryId, nextMessages, { agent: "teller" });
           return;
         }
       }
@@ -2102,7 +2081,7 @@ export default function ChatWindow() {
         const nextMessages = [...updatedMessages, assistantMessage];
         if (activeHistoryIdRef.current === requestHistoryId) setMessages(nextMessages);
         updateHistoryMessages(requestHistoryId, nextMessages, {
-          agent: requestAgent,
+          agent: "teller",
           ...(requestAgent === "maps" && isGoogleMapsEmbedUrl(data.mapEmbedUrl)
             ? { mapEmbedUrl: data.mapEmbedUrl }
             : {}),
@@ -2121,14 +2100,14 @@ export default function ChatWindow() {
           },
         ];
         if (activeHistoryIdRef.current === requestHistoryId) setMessages(nextMessages);
-        updateHistoryMessages(requestHistoryId, nextMessages, { agent: requestAgent });
+        updateHistoryMessages(requestHistoryId, nextMessages, { agent: "teller" });
       }
     } catch (err) {
       if (requestController.signal.aborted) {
         if (generatedImageAssistantMessage) {
           const nextMessages = [...updatedMessages, generatedImageAssistantMessage];
           if (activeHistoryIdRef.current === requestHistoryId) setMessages(nextMessages);
-          updateHistoryMessages(requestHistoryId, nextMessages, { agent: requestAgent });
+          updateHistoryMessages(requestHistoryId, nextMessages, { agent: "teller" });
         }
         return;
       }
@@ -2146,7 +2125,7 @@ export default function ChatWindow() {
         },
       ];
       if (activeHistoryIdRef.current === requestHistoryId) setMessages(nextMessages);
-      updateHistoryMessages(requestHistoryId, nextMessages, { agent: requestAgent });
+      updateHistoryMessages(requestHistoryId, nextMessages, { agent: "teller" });
     } finally {
       if (requestControllersRef.current.get(requestHistoryId) === requestController) {
         requestControllersRef.current.delete(requestHistoryId);
@@ -3328,159 +3307,7 @@ export default function ChatWindow() {
         ) : (
           <>
         <div ref={messagesScrollRef} className="min-h-0 flex-1 overflow-y-auto p-4 modern-scroll">
-          <div className={`mx-auto min-w-0 space-y-4 ${activeAgent === "maps" ? "max-w-5xl" : "max-w-3xl"} ${isThinking ? "pb-[70vh]" : ""}`}>
-            {activeAgent === "maps" && (
-              <section className="overflow-hidden rounded-2xl border border-sky-500/20 bg-sky-500/[0.04]">
-                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-neutral-800 px-4 py-3">
-                  <div>
-                    <h2 className="flex items-center gap-2 font-semibold text-white">
-                      <MapPinned size={17} className="text-sky-300" aria-hidden="true" />
-                      CyberMaps live map
-                    </h2>
-                    <p className="mt-1 text-xs text-neutral-400">
-                      {activeMapQuery
-                        ? parseMapRequest(activeMapQuery).origin
-                          ? `${parseMapRequest(activeMapQuery).origin} to ${parseMapRequest(activeMapQuery).destination}`
-                          : parseMapRequest(activeMapQuery).destination
-                        : "Ask for a place or directions to load the map."}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={openTools}
-                      disabled={!hasSession}
-                      className="rounded-lg border border-neutral-700 px-3 py-2 text-xs text-neutral-200 transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50"
-                      title={hasSession ? "Connect Google Maps from Tools" : "Sign in to manage app connectors"}
-                    >
-                      Manage Maps add-on
-                    </button>
-                    {activeMapQuery && (
-                      <a
-                        href={getGoogleMapsLink(activeMapQuery)}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="rounded-lg border border-neutral-700 px-3 py-2 text-xs text-neutral-200 transition hover:bg-neutral-800"
-                      >
-                        Open in Google Maps
-                      </a>
-                    )}
-                  </div>
-                </div>
-                {activeMapQuery && (
-                  isGoogleMapsEmbedUrl(activeMapEmbedUrl) || GOOGLE_MAPS_EMBED_API_KEY
-                ) ? (
-                  <iframe
-                    key={`${activeHistoryId || "new"}-${activeMapQuery}-${activeMapEmbedUrl || ""}`}
-                    title={`Interactive map for ${parseMapRequest(activeMapQuery).destination}`}
-                    src={isGoogleMapsEmbedUrl(activeMapEmbedUrl)
-                      ? activeMapEmbedUrl
-                      : getMapEmbedUrl(activeMapQuery, GOOGLE_MAPS_EMBED_API_KEY)}
-                    className="h-[min(55vh,480px)] min-h-[300px] w-full border-0 bg-neutral-900"
-                    loading="lazy"
-                    allowFullScreen
-                    referrerPolicy="strict-origin-when-cross-origin"
-                  />
-                ) : (
-                  <div className="flex min-h-[300px] flex-col items-center justify-center gap-3 px-6 py-10 text-center">
-                    <MapPinned size={34} className="text-sky-300" aria-hidden="true" />
-                    <p className="max-w-xl text-sm text-neutral-300">
-                      {activeMapQuery
-                        ? "Add NEXT_PUBLIC_GOOGLE_MAPS_EMBED_API_KEY to .env.local and enable the Maps Embed API in Google Cloud to show the live map here. Connect the Google Maps add-on from Tools to let CyberMaps look up places and directions."
-                        : "Try “directions from Cape Town Station to Table Mountain” or search for a place. Connect Google Maps from Tools to enable map lookups in chat."}
-                    </p>
-                    {activeMapQuery && (
-                      <a
-                        href={getGoogleMapsLink(activeMapQuery)}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="rounded-lg bg-white px-4 py-2 text-sm font-medium text-neutral-950 hover:bg-neutral-200"
-                      >
-                        View this in Google Maps
-                      </a>
-                    )}
-                  </div>
-                )}
-              </section>
-            )}
-            {activeAgent === "cyber" && (
-              <section className="rounded-2xl border border-violet-500/20 bg-violet-500/[0.06] p-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <h2 className="flex items-center gap-2 font-semibold text-white">
-                      <Mail size={17} className="text-violet-300" aria-hidden="true" />
-                      CyberMail
-                    </h2>
-                    <p className="mt-1 text-sm text-neutral-300">
-                      Search Gmail through Composio and review Google Calendar. Drafts and new events always wait for your confirmation.
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={openTools}
-                      disabled={!hasSession}
-                      className="rounded-lg border border-neutral-700 px-3 py-2 text-sm text-neutral-200 hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      Manage Gmail add-on
-                    </button>
-                    {googleConnection?.connected && hasSession ? (
-                      <button
-                        type="button"
-                        onClick={() => void disconnectGoogleAccount()}
-                        disabled={googleConnectionBusy}
-                        className="rounded-lg border border-neutral-700 px-3 py-2 text-sm text-neutral-200 hover:bg-neutral-800 disabled:opacity-50"
-                      >
-                        {googleConnectionBusy ? "Disconnecting..." : "Disconnect Calendar"}
-                      </button>
-                    ) : hasSession && googleConnection?.configured ? (
-                      <button
-                        type="button"
-                        onClick={() => void connectGoogleAccount()}
-                        disabled={googleConnectionBusy}
-                        className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-neutral-950 hover:bg-neutral-200 disabled:opacity-50"
-                      >
-                        {googleConnectionBusy ? "Connecting..." : "Connect Calendar"}
-                      </button>
-                    ) : !hasSession ? (
-                      <button
-                        type="button"
-                        onClick={() => loginWithRedirect()}
-                        className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-neutral-950 hover:bg-neutral-200"
-                      >
-                        Log in to connect
-                      </button>
-                    ) : googleConnection && !googleConnection.configured ? (
-                      <span className="rounded-lg border border-amber-500/30 px-3 py-2 text-xs text-amber-200">
-                        Calendar setup required
-                      </span>
-                    ) : (
-                      <span className="flex items-center gap-2 px-2 py-2 text-sm text-neutral-400" role="status">
-                        <LoaderCircle size={15} className="animate-spin" aria-hidden="true" />
-                        Checking Google connection...
-                      </span>
-                    )}
-                  </div>
-                </div>
-                {googleConnection?.connected && (
-                  <div className="mt-3 flex items-center gap-2 text-sm text-emerald-300">
-                    <Check size={16} aria-hidden="true" />
-                    Calendar connected as {googleConnection.email}
-                  </div>
-                )}
-                {!googleConnection?.configured && hasSession && googleConnection && (
-                  <p className="mt-3 text-xs leading-5 text-neutral-400">
-                    Configure the server-side Google OAuth settings and enable the Calendar API. Connect Gmail separately with the add-on manager.
-                  </p>
-                )}
-                <div className="mt-3 flex flex-wrap gap-3 text-xs text-neutral-400">
-                  <span className="inline-flex items-center gap-1.5"><Mail size={13} aria-hidden="true" /> Gmail via Composio</span>
-                  <span className="inline-flex items-center gap-1.5"><CalendarDays size={13} aria-hidden="true" /> Calendar read & create</span>
-                </div>
-                {googleConnectionError && <p className="mt-3 text-sm text-rose-300" role="alert">{googleConnectionError}</p>}
-                {googleConnectionNotice && <p className="mt-2 text-sm text-emerald-300" role="status">{googleConnectionNotice}</p>}
-              </section>
-            )}
+          <div className={`mx-auto min-w-0 space-y-4 max-w-3xl ${isThinking ? "pb-[70vh]" : ""}`}>
             {messages.map((message, index) => (
               message.role === "user" && message.file ? null :
               <div
@@ -3813,47 +3640,9 @@ export default function ChatWindow() {
                 )}
                 <div className="flex min-w-0 items-end gap-2">
                 <div className="relative order-2 shrink-0 self-center">
-                  <button
-                    type="button"
-                    onClick={() => setIsModeMenuOpen((open) => !open)}
-                    disabled={loading || isRecording || isTranscribing}
-                    className="flex h-10 items-center gap-2 rounded-full border border-neutral-700 px-3 text-xs font-medium text-neutral-200 transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50"
-                    aria-label={`Mode: ${activeAgent === "cyber" ? "CyberMail" : activeAgent === "maps" ? "CyberMaps" : "Grope"}`}
-                    aria-haspopup="menu"
-                    aria-expanded={isModeMenuOpen}
-                  >
-                    <span className="max-w-32 truncate font-bold text-white">
-                      {activeAgent === "cyber" ? "CyberMail" : activeAgent === "maps" ? "CyberMaps" : "Grope"}
-                    </span>
-                    <span aria-hidden="true">▾</span>
-                  </button>
-                  {isModeMenuOpen && (
-                    <div className="absolute bottom-12 left-0 z-30 w-56 rounded-xl border border-neutral-700 bg-neutral-900 p-1 shadow-xl" role="menu" aria-label="Choose chat mode">
-                      {([
-                        { id: "teller", label: "Grope", description: "General chat" },
-                        { id: "cyber", label: "CyberMail", description: "Gmail & Calendar" },
-                        { id: "maps", label: "CyberMaps", description: "Directions & live map" },
-                      ] as const).map((mode) => (
-                        <button
-                          key={mode.id}
-                          type="button"
-                          role="menuitemradio"
-                          aria-checked={activeAgent === mode.id}
-                          disabled={loading || isRecording || isTranscribing}
-                          onClick={() => switchMode(mode.id)}
-                          className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50 ${
-                            activeAgent === mode.id ? "bg-neutral-800 text-white" : "text-neutral-300"
-                          }`}
-                        >
-                          <span>
-                            <span className="block text-sm font-bold">{mode.label}</span>
-                            <span className="block text-xs text-neutral-500">{mode.description}</span>
-                          </span>
-                          {activeAgent === mode.id && <Check size={16} aria-hidden="true" />}
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                  <span className="flex h-10 items-center rounded-full border border-neutral-700 px-3 text-xs font-bold text-white">
+                    Grope
+                  </span>
                 </div>
                 <div className="relative order-1 shrink-0 self-center">
                   <input
@@ -3922,7 +3711,7 @@ export default function ChatWindow() {
                     ref={promptInputRef}
                     rows={1}
                     className="order-3 max-h-[45vh] min-h-11 min-w-0 flex-1 resize-none overflow-y-auto bg-transparent px-2 py-3 text-sm leading-5 text-white outline-none placeholder:text-neutral-500"
-                    placeholder={activeAgent === "cyber" ? "Ask CyberMail about Gmail or your calendar..." : activeAgent === "maps" ? "Search for a place or ask for directions..." : "Ask Grope anything..."}
+                    placeholder="Ask Grope anything..."
                     value={input}
                     disabled={loading}
                     onChange={(e) => setInput(e.target.value)}
@@ -3932,7 +3721,7 @@ export default function ChatWindow() {
                         void sendMessage();
                       }
                     }}
-                    aria-label={`Message ${activeAgent === "cyber" ? "CyberMail" : activeAgent === "maps" ? "CyberMaps" : "Teller"}`}
+                    aria-label="Message Grope"
                   />
                 )}
 
