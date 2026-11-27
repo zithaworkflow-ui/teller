@@ -76,7 +76,8 @@ type SearchedImageResult = {
   height?: number;
 };
 
-type AgentMode = "teller" | "cyber" | "maps";
+type AgentMode = "grope" | "cyber" | "maps";
+type StoredAgentMode = AgentMode | "teller";
 type CyberPendingAction = {
   id: string;
   type: "gmail.create_draft" | "calendar.create_event";
@@ -95,7 +96,7 @@ type ComposioPendingAction = {
 type HistoryItem = {
   id: string;
   title: string;
-  agent?: AgentMode;
+  agent?: StoredAgentMode;
   mapQuery?: string;
   mapEmbedUrl?: string | null;
   messages: Message[];
@@ -107,6 +108,10 @@ type GoogleConnectionStatus = {
   connected: boolean;
   email: string | null;
 };
+
+function getHistoryAgent(agent: unknown): AgentMode {
+  return agent === "cyber" || agent === "maps" ? agent : "grope";
+}
 
 type IntegrationToolkit = {
   slug: string;
@@ -390,7 +395,7 @@ function getGropeAgentMode(message: string): AgentMode {
   if (/\b(directions?|route|routes|map|maps|nearby|navigation|navigate|distance|driving|walking|cycling|transit|geocode|coordinates?|latitude|longitude)\b/.test(normalized)) {
     return "maps";
   }
-  return "teller";
+  return "grope";
 }
 
 const IMAGE_ARTIFACT_PATTERN = /\b(?:pic|picture|image|photo|photograph|artwork|illustration|drawing|painting|logo|icon|avatar|poster|banner|wallpaper|diagram|graphic|thumbnail|cover art)\b/i;
@@ -852,7 +857,7 @@ export default function ChatWindow() {
   const [histories, setHistories] = useState<HistoryItem[]>([]);
   const [activeHistoryId, setActiveHistoryId] = useState<string | null>(null);
   const activeHistoryIdRef = useRef<string | null>(null);
-  const [activeAgent, setActiveAgent] = useState<AgentMode>("teller");
+  const [activeAgent, setActiveAgent] = useState<AgentMode>("grope");
   const [activeMapQuery, setActiveMapQuery] = useState("");
   const historyHydratedRef = useRef(false);
   const agentQueryHandledRef = useRef(false);
@@ -877,7 +882,7 @@ export default function ChatWindow() {
   const loading = activeHistoryId !== null && loadingHistoryIds.has(activeHistoryId);
   const researchSites = activeHistoryId ? researchSitesByHistory[activeHistoryId] || [] : [];
   const isGeneratingImage = activeHistoryId !== null && generatingImageHistoryIds.has(activeHistoryId);
-  const isThinking = loading && activeAgent === "teller" && !isGeneratingImage;
+  const isThinking = loading && activeAgent === "grope" && !isGeneratingImage;
   const isRecordingRef = useRef(false);
   const isStartingRecordingRef = useRef(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -1092,7 +1097,7 @@ export default function ChatWindow() {
     historyHydratedRef.current = false;
     try {
       selectHistory(null);
-      setActiveAgent("teller");
+      setActiveAgent("grope");
       setActiveMapQuery("");
       setMessages([
         {
@@ -1118,7 +1123,7 @@ export default function ChatWindow() {
         setHistories([initial]);
         selectHistory(initial.id);
         setMessages(initialMessages);
-        setActiveAgent("teller");
+        setActiveAgent("grope");
         setActiveMapQuery("");
         setMonthlyChatCount(0);
         historyHydratedRef.current = true;
@@ -1140,7 +1145,7 @@ export default function ChatWindow() {
             setHistories(remoteHistories);
             selectHistory(remoteHistories[0].id);
             setMessages(remoteHistories[0].messages);
-            setActiveAgent("teller");
+            setActiveAgent("grope");
             setActiveMapQuery(typeof remoteHistories[0].mapQuery === "string" ? remoteHistories[0].mapQuery : "");
           } else {
             const initialMessages: Message[] = [
@@ -1159,7 +1164,7 @@ export default function ChatWindow() {
             setHistories([initial]);
             selectHistory(initial.id);
             setMessages(initialMessages);
-            setActiveAgent("teller");
+            setActiveAgent("grope");
             setActiveMapQuery("");
           }
         })
@@ -1211,7 +1216,7 @@ export default function ChatWindow() {
     agentQueryHandledRef.current = true;
     url.searchParams.delete("agent");
     window.history.replaceState({}, document.title, `${url.pathname}${url.search}`);
-    setActiveAgent("teller");
+    setActiveAgent("grope");
   }, [histories, isAuthLoading, isMounted]);
 
   // Persist active history whenever messages change
@@ -1321,7 +1326,7 @@ export default function ChatWindow() {
     if (mode === activeAgent) return;
 
     const modeHistory = histories.find((history) => (
-      (history.agent === "cyber" || history.agent === "maps" ? history.agent : "teller") === mode
+      getHistoryAgent(history.agent) === mode
     ));
     if (!modeHistory) {
       createNewChat(mode);
@@ -1329,7 +1334,7 @@ export default function ChatWindow() {
     }
 
     selectHistory(modeHistory.id);
-    setActiveAgent("teller");
+    setActiveAgent("grope");
     setActiveMapQuery(typeof modeHistory.mapQuery === "string" ? modeHistory.mapQuery : "");
     setMessages(modeHistory.messages);
     setIsSidebarOpen(false);
@@ -1357,7 +1362,7 @@ export default function ChatWindow() {
     const next = [newItem, ...histories];
     setHistories(next);
     selectHistory(id);
-    setActiveAgent("teller");
+    setActiveAgent("grope");
     setActiveMapQuery("");
     setMessages(initialMessages);
     setIsSidebarOpen(false);
@@ -1377,7 +1382,7 @@ export default function ChatWindow() {
       // if deleted active, switch to first or create new
       if (id === activeHistoryId) {
         const nextModeHistory = next.find((history) => (
-          (history.agent === "cyber" || history.agent === "maps" ? history.agent : "teller") === activeAgent
+          getHistoryAgent(history.agent) === activeAgent
         ));
         if (nextModeHistory) {
           selectHistory(nextModeHistory.id);
@@ -1413,7 +1418,7 @@ export default function ChatWindow() {
     const h = histories.find((x) => x.id === id);
     if (!h) return;
     selectHistory(id);
-    setActiveAgent("teller");
+    setActiveAgent("grope");
     setActiveMapQuery(typeof h.mapQuery === "string" ? h.mapQuery : "");
     setMessages(h.messages);
     setIsSidebarOpen(false);
@@ -1492,7 +1497,7 @@ export default function ChatWindow() {
   function openGeneratedImageEditor(image: GeneratedImage) {
     const history = histories.find((item) => item.id === image.historyId);
     if (history) loadHistory(history.id);
-    else createNewChat("teller");
+    else createNewChat("grope");
     setImageEditTarget({
       role: "assistant",
       content: "Here’s the image you asked for.",
@@ -1720,8 +1725,8 @@ export default function ChatWindow() {
         requestHistoryId,
         updatedMessages,
         requestAgent === "maps" && !getExplicitMemoryRequest(userMessage.content)
-          ? { agent: "teller", mapQuery: userMessage.content, mapEmbedUrl: null }
-          : { agent: "teller" },
+          ? { agent: "grope", mapQuery: userMessage.content, mapEmbedUrl: null }
+          : { agent: "grope" },
       );
     }
     setPendingFile(null);
@@ -1770,7 +1775,7 @@ export default function ChatWindow() {
         };
         const nextMessages = [...updatedMessages, assistantMessage];
         if (activeHistoryIdRef.current === requestHistoryId) setMessages(nextMessages);
-        updateHistoryMessages(requestHistoryId, nextMessages, { agent: "teller" });
+        updateHistoryMessages(requestHistoryId, nextMessages, { agent: "grope" });
         return;
       }
       if (requestAgent === "maps" && requestFile) {
@@ -1814,10 +1819,10 @@ export default function ChatWindow() {
       let imageIntentClassificationFailed = false;
       const useImageIntentHeuristic = (
         !isAuthenticated ||
-        requestAgent !== "teller" ||
+        requestAgent !== "grope" ||
         userMessage.content.length > 4000
       );
-      if (requestAgent === "teller" &&
+      if (requestAgent === "grope" &&
         isAuthenticated &&
         userMessage.content.length <= 4000 &&
         (!requestFile || hasImageUpload)) {
@@ -1913,7 +1918,7 @@ export default function ChatWindow() {
         };
         const nextMessages = [...updatedMessages, assistantMessage];
         if (activeHistoryIdRef.current === requestHistoryId) setMessages(nextMessages);
-        updateHistoryMessages(requestHistoryId, nextMessages, { agent: "teller" });
+        updateHistoryMessages(requestHistoryId, nextMessages, { agent: "grope" });
         return;
       }
 
@@ -1983,7 +1988,7 @@ export default function ChatWindow() {
         if (!shouldHandleOtherIntent) {
           const nextMessages = [...updatedMessages, generatedImageAssistantMessage];
           if (activeHistoryIdRef.current === requestHistoryId) setMessages(nextMessages);
-          updateHistoryMessages(requestHistoryId, nextMessages, { agent: "teller" });
+          updateHistoryMessages(requestHistoryId, nextMessages, { agent: "grope" });
           return;
         }
       }
@@ -2082,7 +2087,7 @@ export default function ChatWindow() {
         const nextMessages = [...updatedMessages, assistantMessage];
         if (activeHistoryIdRef.current === requestHistoryId) setMessages(nextMessages);
         updateHistoryMessages(requestHistoryId, nextMessages, {
-          agent: "teller",
+          agent: "grope",
           ...(requestAgent === "maps" && isGoogleMapsEmbedUrl(data.mapEmbedUrl)
             ? { mapEmbedUrl: data.mapEmbedUrl }
             : {}),
@@ -2101,14 +2106,14 @@ export default function ChatWindow() {
           },
         ];
         if (activeHistoryIdRef.current === requestHistoryId) setMessages(nextMessages);
-        updateHistoryMessages(requestHistoryId, nextMessages, { agent: "teller" });
+        updateHistoryMessages(requestHistoryId, nextMessages, { agent: "grope" });
       }
     } catch (err) {
       if (requestController.signal.aborted) {
         if (generatedImageAssistantMessage) {
           const nextMessages = [...updatedMessages, generatedImageAssistantMessage];
           if (activeHistoryIdRef.current === requestHistoryId) setMessages(nextMessages);
-          updateHistoryMessages(requestHistoryId, nextMessages, { agent: "teller" });
+          updateHistoryMessages(requestHistoryId, nextMessages, { agent: "grope" });
         }
         return;
       }
@@ -2126,7 +2131,7 @@ export default function ChatWindow() {
         },
       ];
       if (activeHistoryIdRef.current === requestHistoryId) setMessages(nextMessages);
-      updateHistoryMessages(requestHistoryId, nextMessages, { agent: "teller" });
+      updateHistoryMessages(requestHistoryId, nextMessages, { agent: "grope" });
     } finally {
       if (requestControllersRef.current.get(requestHistoryId) === requestController) {
         requestControllersRef.current.delete(requestHistoryId);
@@ -2635,7 +2640,7 @@ export default function ChatWindow() {
   }
 
   const modeHistories = histories.filter((history) => (
-    (history.agent === "cyber" || history.agent === "maps" ? history.agent : "teller") === activeAgent
+    getHistoryAgent(history.agent) === activeAgent
   ));
   const activeMapEmbedUrl = histories.find((history) => history.id === activeHistoryId)?.mapEmbedUrl;
   const activeAgentName = activeAgent === "cyber"
@@ -2720,7 +2725,7 @@ export default function ChatWindow() {
 
           <div className="min-h-0 flex-1 overflow-y-auto space-y-5 text-sm text-neutral-400 modern-scroll">
             <section aria-labelledby="chat-history-heading">
-              {activeAgent !== "teller" && (
+              {activeAgent !== "grope" && (
                 <div className="mb-3 flex items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.025] px-3 py-2">
                   <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-sky-500/10 text-sky-300">
                     <ActiveAgentIcon size={15} aria-hidden="true" />
@@ -2894,7 +2899,7 @@ export default function ChatWindow() {
                   <PanelLeftOpen size={20} aria-hidden="true" />
                 </button>
               )}
-              {activeAgent !== "teller" && (
+              {activeAgent !== "grope" && (
                 <>
                   {activeAgent === "cyber" ? (
                     <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-500/15 text-violet-200">
@@ -3340,7 +3345,7 @@ export default function ChatWindow() {
                   )}
                 </div>
                 {message.role === "assistant" &&
-                  activeAgent === "teller" &&
+                  activeAgent === "grope" &&
                   index === messages.length - 1 &&
                   message.choices?.length ? (
                     <div className="mt-4" aria-label="Suggested answers">
@@ -3548,7 +3553,7 @@ export default function ChatWindow() {
               </div>
             ))}
 
-            {activeAgent === "teller" &&
+            {activeAgent === "grope" &&
               messages.every((message) => message.role !== "user") &&
               messages.length > 0 && (
                 <section aria-label="Example prompts" className="rounded-2xl border border-sky-400/15 bg-sky-400/[0.03] p-4">
@@ -3573,7 +3578,7 @@ export default function ChatWindow() {
                 </section>
               )}
 
-            {loading && activeAgent === "teller" && researchSites.length > 0 && (
+            {loading && activeAgent === "grope" && researchSites.length > 0 && (
               <div
                 className="mr-auto mb-2 flex max-w-[85%] flex-wrap items-center gap-2"
                 role="status"
@@ -3612,7 +3617,7 @@ export default function ChatWindow() {
                     ))}
                   </span>
                 ) : (
-                  activeAgent === "teller" ? (
+                  activeAgent === "grope" ? (
                     <NeutronStarLoader />
                   ) : activeAgent === "cyber" ? (
                     "Grope is working..."
