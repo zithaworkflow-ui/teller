@@ -39,10 +39,18 @@ Format replies for readability:
 - Match the amount of structure to the question; keep simple answers concise
 `;
 
+export const THINK_MODE_SYSTEM_PROMPT = [
+  "Think carefully through the request before answering, but do not reveal private chain-of-thought or hidden reasoning.",
+  "Give a more thorough, well-structured response than usual, including relevant context, key considerations, useful examples, and actionable steps when they help answer the request.",
+  "For calculations or complex decisions, provide a concise summary of the method and important checks, not private internal reasoning.",
+  "Prioritize completeness and accuracy over brevity without adding filler or unnecessary detail.",
+].join(" ");
+
 const MAX_MESSAGES = 40;
 const MAX_MESSAGE_CHARS = 12_000;
 const MAX_TOTAL_MESSAGE_CHARS = 90_000;
 const MAX_ALLOWED_OUTPUT_TOKENS = 2_048;
+const MAX_THINK_MODE_OUTPUT_TOKENS = 8_192;
 
 export type TellerToolCall = {
   id: string;
@@ -55,11 +63,14 @@ export type TellerAIMessage = {
   tool_calls?: TellerToolCall[];
 };
 
-function getMaxTokens(requestedTokens?: number) {
+function getMaxTokens(requestedTokens?: number, thinkMode = false) {
   const configuredTokens = Number.parseInt(process.env.AI_MAX_TOKENS || "2048", 10);
   const defaultTokens = Number.isFinite(configuredTokens) ? configuredTokens : 2048;
-  const tokens = requestedTokens ?? defaultTokens;
-  return Math.min(MAX_ALLOWED_OUTPUT_TOKENS, Math.max(16, tokens));
+  const maximumTokens = thinkMode ? MAX_THINK_MODE_OUTPUT_TOKENS : MAX_ALLOWED_OUTPUT_TOKENS;
+  const tokens = requestedTokens ?? (
+    thinkMode ? Math.max(defaultTokens, MAX_THINK_MODE_OUTPUT_TOKENS) : defaultTokens
+  );
+  return Math.min(maximumTokens, Math.max(16, tokens));
 }
 
 export function getAffordableOutputTokens(error: unknown) {
@@ -123,6 +134,8 @@ async function callTellerAICompletion(
     userMemory?: string[];
     tools?: unknown[];
     model?: string;
+    thinkMode?: boolean;
+    signal?: AbortSignal;
   },
 ): Promise<TellerAIMessage> {
   const compactPrompt = options?.compactPrompt ?? false;
@@ -131,7 +144,7 @@ async function callTellerAICompletion(
   const data = await callNvidiaChatCompletion<{
     choices?: { message?: TellerAIMessage }[];
   }>({
-      max_tokens: getMaxTokens(options?.maxTokens),
+      max_tokens: getMaxTokens(options?.maxTokens, options?.thinkMode),
       messages: [
         {
           role: "system",
@@ -145,6 +158,7 @@ async function callTellerAICompletion(
                 ? `The user's country is ${options.country}; use it when relevant.`
                 : `The authenticated user's country is ${options.country}. When a question depends on location, use this country's laws, services, currency, spelling, units, and local context. Do not force localization when it is irrelevant, and follow a different location if the user explicitly asks about one.`
               : "",
+            options?.thinkMode ? THINK_MODE_SYSTEM_PROMPT : "",
             options?.systemPrompt || "",
           ].filter(Boolean).join("\n\n"),
         },
@@ -152,7 +166,7 @@ async function callTellerAICompletion(
       ],
       ...(options?.tools ? { tools: options.tools, tool_choice: "auto" } : {}),
       temperature: 0.7,
-  }, options?.model);
+  }, options?.model, options?.signal);
 
   const message = data.choices?.[0]?.message;
   if (!message) throw new Error("The AI service returned an empty response.");
@@ -169,6 +183,8 @@ export async function callTellerAIWithTools(
     compactPrompt?: boolean;
     systemPrompt?: string;
     userMemory?: string[];
+    thinkMode?: boolean;
+    signal?: AbortSignal;
   },
 ) {
   return callTellerAICompletion(messages, { ...options, tools });
@@ -184,6 +200,8 @@ export async function callTellerAI(
     systemPrompt?: string;
     userMemory?: string[];
     model?: string;
+    thinkMode?: boolean;
+    signal?: AbortSignal;
   },
 ) {
   const message = await callTellerAICompletion(messages, options);

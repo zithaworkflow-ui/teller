@@ -17,11 +17,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "The reference image status is invalid." }, { status: 400 });
     }
 
-    const isImageGenerationIntent = await classifyImageGenerationIntent(
+    const intent = await classifyImageGenerationIntent(
       prompt,
       body.hasReferenceImage === true,
     );
-    return NextResponse.json({ isImageGenerationIntent });
+    return NextResponse.json(intent);
   } catch (error) {
     console.error("Image-intent classification error:", error);
     return NextResponse.json(

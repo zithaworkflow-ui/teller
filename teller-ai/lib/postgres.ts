@@ -1,5 +1,6 @@
 import { Pool } from "pg";
 import { MAX_USER_MEMORIES, MAX_USER_MEMORY_CHARS } from "@/lib/user-memory";
+import type { ComposioPendingAction } from "@/lib/composio";
 
 type UserChatData = {
   history: unknown[];
@@ -187,6 +188,14 @@ async function ensureSchema() {
           expires_at TIMESTAMPTZ NOT NULL
         )
       `);
+      await getPool().query(`
+        CREATE TABLE IF NOT EXISTS teller_composio_pending_actions (
+          id UUID PRIMARY KEY,
+          user_id TEXT NOT NULL,
+          action JSONB NOT NULL,
+          expires_at TIMESTAMPTZ NOT NULL
+        )
+      `);
     });
   }
   await globalForPostgres.tellerPostgresSchema;
@@ -311,6 +320,30 @@ export async function consumeGooglePendingAction(userId: string, id: string) {
   return result.rows[0]?.action ?? null;
 }
 
+export async function createComposioPendingAction(
+  userId: string,
+  action: ComposioPendingAction,
+) {
+  await ensureSchema();
+  const id = crypto.randomUUID();
+  await getPool().query("DELETE FROM teller_composio_pending_actions WHERE expires_at <= NOW()");
+  await getPool().query(
+    "INSERT INTO teller_composio_pending_actions (id, user_id, action, expires_at) VALUES ($1, $2, $3::jsonb, NOW() + INTERVAL '10 minutes')",
+    [id, userId, JSON.stringify(action)],
+  );
+  return id;
+}
+
+export async function consumeComposioPendingAction(userId: string, id: string) {
+  await ensureSchema();
+  await getPool().query("DELETE FROM teller_composio_pending_actions WHERE expires_at <= NOW()");
+  const result = await getPool().query<{ action: ComposioPendingAction }>(
+    "DELETE FROM teller_composio_pending_actions WHERE id = $1 AND user_id = $2 AND expires_at > NOW() RETURNING action",
+    [id, userId],
+  );
+  return result.rows[0]?.action ?? null;
+}
+
 function currentUsageMonth() {
   const now = new Date();
   return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
@@ -372,6 +405,7 @@ export async function deleteUserAccountData(userId: string) {
         "DELETE FROM teller_google_connections WHERE user_id = $1",
         "DELETE FROM teller_google_oauth_states WHERE user_id = $1",
         "DELETE FROM teller_google_pending_actions WHERE user_id = $1",
+        "DELETE FROM teller_composio_pending_actions WHERE user_id = $1",
       ]);
       await deleteUserRows(getCyberAgentPool(), userId, [
         "DELETE FROM teller_google_connections WHERE user_id = $1",
@@ -818,24 +852,27 @@ export async function saveUserUsage(userId: string, usageCount: number, usageMon
   );
 }
 
-export async function incrementUserUsage(userId: string) {
+export async function incrementUserUsage(userId: string, increment = 1) {
+  if (!Number.isInteger(increment) || increment < 1) {
+    throw new Error("Usage increment must be a positive integer.");
+  }
   await ensureSchema();
   const usageMonth = currentUsageMonth();
   const result = await getPool().query<{ usage_count: number }>(
     `
       INSERT INTO teller_user_chat_data (user_id, usage_month, usage_count, updated_at)
-      VALUES ($1, $2, 1, NOW())
+      VALUES ($1, $2, $3, NOW())
       ON CONFLICT (user_id) DO UPDATE SET
         usage_month = EXCLUDED.usage_month,
         usage_count = CASE
           WHEN teller_user_chat_data.usage_month = EXCLUDED.usage_month
-            THEN teller_user_chat_data.usage_count + 1
-          ELSE 1
+            THEN teller_user_chat_data.usage_count + EXCLUDED.usage_count
+          ELSE EXCLUDED.usage_count
         END,
         updated_at = NOW()
       RETURNING usage_count
     `,
-    [userId, usageMonth],
+    [userId, usageMonth, increment],
   );
   return result.rows[0].usage_count;
 }

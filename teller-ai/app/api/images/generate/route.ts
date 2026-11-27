@@ -131,6 +131,7 @@ export async function POST(request: Request) {
       );
     }
     imageReservation = { userId, usageDate };
+    request.signal.throwIfAborted();
 
     const image = await generateImageWithCloudflare(
       prompt,
@@ -138,7 +139,9 @@ export async function POST(request: Request) {
       parsedReference
         ? { bytes: parsedReference.bytes, mediaType: parsedReference.mediaType }
         : storedReference,
+      request.signal,
     );
+    request.signal.throwIfAborted();
     const dataUrl = image.imageUrl.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,([\s\S]+)$/);
     if (!dataUrl) {
       throw new Error("The image provider returned an image format that cannot be stored.");
@@ -162,7 +165,7 @@ export async function POST(request: Request) {
       imageGenerationLimit: plan.imageGenerationLimit,
     });
   } catch (error) {
-    console.error("Image generation API error:", error);
+    if (!request.signal.aborted) console.error("Image generation API error:", error);
     if (imageReservation) {
       try {
         await releaseUserDailyImageGeneration(imageReservation.userId, imageReservation.usageDate);
@@ -170,6 +173,7 @@ export async function POST(request: Request) {
         console.error("Could not release failed image generation reservation:", releaseError);
       }
     }
+    if (request.signal.aborted) return new Response(null, { status: 499 });
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Image generation failed." },
       { status: 502 },

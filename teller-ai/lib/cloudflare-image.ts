@@ -103,6 +103,7 @@ export async function generateImageWithCloudflare(
   prompt: string,
   resolution: string,
   referenceImage?: { bytes: Buffer; mediaType: string },
+  signal?: AbortSignal,
 ) {
   const accountId = process.env.CLOUDFLARE_ACCOUNT_ID?.trim();
   const apiToken = process.env.CLOUDFLARE_API_TOKEN?.trim();
@@ -135,7 +136,9 @@ export async function generateImageWithCloudflare(
       method: "POST",
       headers: { Authorization: `Bearer ${apiToken}` },
       body: formData,
-      signal: AbortSignal.timeout(120_000),
+      signal: signal
+        ? AbortSignal.any([signal, AbortSignal.timeout(120_000)])
+        : AbortSignal.timeout(120_000),
     },
   );
 

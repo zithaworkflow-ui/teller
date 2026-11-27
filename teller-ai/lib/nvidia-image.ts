@@ -1,5 +1,6 @@
 import { getNvidiaAIConfig } from "@/lib/nvidia-ai";
 import { formatUserMemoryPrompt } from "@/lib/user-memory";
+import { THINK_MODE_SYSTEM_PROMPT } from "@/lib/ai";
 
 type ChatCompletionResponse = {
   choices?: Array<{
@@ -61,6 +62,7 @@ function parseChatCompletionResponse(value: unknown): ChatCompletionResponse {
 async function requestNvidiaImageAnalysis(
   messages: NvidiaImageMessage[],
   maxTokens: number,
+  signal?: AbortSignal,
 ) {
   const { apiKey, apiBaseUrl, model } = getNvidiaAIConfig();
   const response = await fetch(apiBaseUrl, {
@@ -70,7 +72,9 @@ async function requestNvidiaImageAnalysis(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ model, max_tokens: maxTokens, messages }),
-    signal: AbortSignal.timeout(120_000),
+    signal: signal
+      ? AbortSignal.any([signal, AbortSignal.timeout(120_000)])
+      : AbortSignal.timeout(120_000),
   });
 
   let responseBody: unknown;
@@ -103,6 +107,9 @@ export async function analyzeImageWithNvidia(
   imageDataUrl: string,
   country?: string,
   userMemory: string[] = [],
+  thinkMode = false,
+  signal?: AbortSignal,
+  thinkOutputTokenLimit = thinkMode ? 4096 : 2048,
 ) {
   const userMemoryPrompt = formatUserMemoryPrompt(userMemory);
 
@@ -111,6 +118,7 @@ export async function analyzeImageWithNvidia(
       role: "system",
       content: [
         "You are Teller AI. Answer the user's request about the attached image accurately. Describe visible details and distinguish observations from inferences.",
+        thinkMode ? THINK_MODE_SYSTEM_PROMPT : "",
         country
           ? `The authenticated user's country is ${country}. Use this context when relevant.`
           : "",
@@ -124,5 +132,5 @@ export async function analyzeImageWithNvidia(
         { type: "image_url", image_url: { url: imageDataUrl } },
       ],
     },
-  ], 2048);
+  ], thinkMode ? thinkOutputTokenLimit : 2048, signal);
 }

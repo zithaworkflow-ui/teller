@@ -60,6 +60,7 @@ function extractMcpResponse(text: string): McpEnvelope {
 async function postMcpMessage(
   session: ParallelMcpSession,
   body: Record<string, unknown>,
+  signal?: AbortSignal,
 ) {
   const apiKey = process.env.PARALLEL_API_KEY;
   try {
@@ -74,6 +75,7 @@ async function postMcpMessage(
       },
       body: JSON.stringify(body),
       cache: "no-store",
+      ...(signal ? { signal } : {}),
     });
     if (!response.ok && response.status !== 202) {
       const details = (await response.text()).slice(0, 500);
@@ -97,7 +99,7 @@ async function postMcpMessage(
   }
 }
 
-export async function initializeParallelMcp(): Promise<ParallelMcpSession> {
+export async function initializeParallelMcp(signal?: AbortSignal): Promise<ParallelMcpSession> {
   const session: ParallelMcpSession = { nextRequestId: 1 };
   const result = await postMcpMessage(session, {
     jsonrpc: "2.0",
@@ -108,22 +110,22 @@ export async function initializeParallelMcp(): Promise<ParallelMcpSession> {
       capabilities: {},
       clientInfo: { name: "Teller AI", version: "1.0.0" },
     },
-  });
+  }, signal);
   if (!result) throw new ParallelMcpError("Parallel MCP did not complete initialization.");
 
   await postMcpMessage(session, {
     jsonrpc: "2.0",
     method: "notifications/initialized",
-  });
+  }, signal);
   return session;
 }
 
-export async function listParallelTools(session: ParallelMcpSession) {
+export async function listParallelTools(session: ParallelMcpSession, signal?: AbortSignal) {
   const result = await postMcpMessage(session, {
     jsonrpc: "2.0",
     id: session.nextRequestId++,
     method: "tools/list",
-  });
+  }, signal);
   const tools = result?.tools;
   if (!Array.isArray(tools)) throw new ParallelMcpError("Parallel MCP did not return a tools list.");
 
@@ -170,6 +172,7 @@ export async function callParallelTool(
   session: ParallelMcpSession,
   toolName: string,
   args: Record<string, unknown>,
+  signal?: AbortSignal,
 ) {
   if (!ENABLED_PARALLEL_TOOLS.has(toolName)) {
     throw new ParallelMcpError("That Parallel MCP tool is not enabled in Teller AI.");
@@ -179,7 +182,7 @@ export async function callParallelTool(
     id: session.nextRequestId++,
     method: "tools/call",
     params: { name: toolName, arguments: args },
-  });
+  }, signal);
   if (!result) throw new ParallelMcpError("Parallel MCP returned an empty tool result.");
   if (result.isError === true) {
     const content = result.content;

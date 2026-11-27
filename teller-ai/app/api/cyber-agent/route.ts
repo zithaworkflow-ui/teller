@@ -3,11 +3,14 @@ import { getAuthenticatedUserId } from "@/lib/auth0-auth";
 import {
   addUserMemory,
   createGooglePendingAction,
+  getUserAccountData,
   getUserMemories,
   incrementUserUsage,
 } from "@/lib/postgres";
 import { LOCAL_TEST_USER_ID } from "@/lib/local-test-auth";
 import { callNvidiaChatCompletion } from "@/lib/nvidia-chat";
+import { THINK_MODE_SYSTEM_PROMPT } from "@/lib/ai";
+import { getThinkOutputTokenLimit, THINK_MODE_USAGE_COST } from "@/lib/plans";
 import {
   formatUserMemoryPrompt,
   getExplicitMemoryRequest,
@@ -43,9 +46,14 @@ function parseArguments(raw: string): Record<string, unknown> {
   return parsed as Record<string, unknown>;
 }
 
-async function completeWithTools(messages: Array<Record<string, unknown>>, tools: unknown[]) {
+async function completeWithTools(
+  messages: Array<Record<string, unknown>>,
+  tools: unknown[],
+  thinkMode: boolean,
+  thinkOutputTokenLimit: number,
+) {
   const payload: unknown = await callNvidiaChatCompletion({
-      max_tokens: 2048,
+      max_tokens: thinkMode ? thinkOutputTokenLimit : 2048,
       messages,
       tools,
       tool_choice: "auto",
@@ -88,6 +96,9 @@ export async function POST(request: Request) {
   try {
     const body: unknown = await request.json();
     const incoming = body && typeof body === "object" && "messages" in body ? body.messages : null;
+    const thinkMode = Boolean(
+      body && typeof body === "object" && "thinkMode" in body && body.thinkMode === true,
+    );
     if (!Array.isArray(incoming) || incoming.length === 0) {
       return NextResponse.json({ error: "Messages are required." }, { status: 400 });
     }
@@ -123,10 +134,14 @@ export async function POST(request: Request) {
     }
 
     const userMemory = (await getUserMemories(userId)).map((item) => item.memory);
+    const account = await getUserAccountData(userId);
+    const thinkOutputTokenLimit = getThinkOutputTokenLimit(account.planKey);
     const accessToken = await getGoogleAccessToken(userId);
     const gmailTools = await listGmailTools(accessToken);
     const tools = buildOpenAITools(gmailTools);
-    const incrementUsage = async () => userId === LOCAL_TEST_USER_ID ? null : incrementUserUsage(userId);
+    const incrementUsage = async () => userId === LOCAL_TEST_USER_ID
+      ? null
+      : incrementUserUsage(userId, thinkMode ? THINK_MODE_USAGE_COST : 1);
     const modelMessages: Array<Record<string, unknown>> = [
       {
         role: "system",
@@ -140,13 +155,14 @@ export async function POST(request: Request) {
           "When the user asks about a calendar time range without exact dates, resolve relative dates from the current time and state your interpretation.",
           "If no suitable Gmail MCP tool is available, say so rather than claiming to have searched.",
           formatUserMemoryPrompt(userMemory),
+          thinkMode ? THINK_MODE_SYSTEM_PROMPT : "",
         ].join(" "),
       },
       ...messages,
     ];
 
     for (let turn = 0; turn < 5; turn += 1) {
-      const assistant = await completeWithTools(modelMessages, tools);
+      const assistant = await completeWithTools(modelMessages, tools, thinkMode, thinkOutputTokenLimit);
       const toolCalls = assistant.tool_calls || [];
       if (!toolCalls.length) {
         const usageCount = await incrementUsage();

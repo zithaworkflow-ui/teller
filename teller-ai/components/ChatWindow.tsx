@@ -6,6 +6,7 @@ import Image from "next/image";
 import {
   ArrowUp,
   ArrowLeft,
+  BrainCircuit,
   Camera,
   CalendarDays,
   Check,
@@ -21,18 +22,21 @@ import {
   PanelLeftOpen,
   Search,
   Sparkles,
+  Square,
   Sun,
   Moon,
   Monitor,
+  Wrench,
   Volume2,
   X,
 } from "lucide-react";
 import katex from "katex";
 import "katex/dist/katex.min.css";
 import metallicTEmblem from "../Futuristic Metallic T Emblem.png";
-import { useEffect, useRef, useState, type ChangeEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import { encodeAudioChunksToWav } from "@/lib/recording-audio";
 import { getExplicitMemoryRequest } from "@/lib/user-memory";
+import { THINK_MODE_USAGE_COST } from "@/lib/plans";
 import { formatTextForSpeech, splitTextForSpeech } from "@/lib/voice-format";
 
 type Message = {
@@ -40,7 +44,7 @@ type Message = {
   content: string;
   createdAt?: number;
   choices?: string[];
-  pendingAction?: CyberPendingAction;
+  pendingAction?: CyberPendingAction | ComposioPendingAction;
   imageUrl?: string;
   imageStoragePath?: string;
   imageDescription?: string;
@@ -61,6 +65,7 @@ type ChatResponsePayload = {
   imageSearchResults?: unknown;
   error?: string;
   memoryAction?: boolean;
+  pendingAction?: unknown;
 };
 
 type SearchedImageResult = {
@@ -77,6 +82,15 @@ type CyberPendingAction = {
   type: "gmail.create_draft" | "calendar.create_event";
   arguments: Record<string, unknown>;
 };
+type ComposioPendingAction = {
+  id: string;
+  type: "composio.multi_execute";
+  actions: Array<{
+    toolSlug: string;
+    description: string;
+    arguments: Record<string, unknown>;
+  }>;
+};
 
 type HistoryItem = {
   id: string;
@@ -91,6 +105,14 @@ type GoogleConnectionStatus = {
   configured: boolean;
   connected: boolean;
   email: string | null;
+};
+
+type IntegrationToolkit = {
+  slug: string;
+  name: string;
+  description: string;
+  logo: string | null;
+  connected: boolean;
 };
 
 const GOOGLE_MAPS_EMBED_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_EMBED_API_KEY || "";
@@ -442,6 +464,60 @@ function isSearchedImageResult(value: unknown): value is SearchedImageResult {
   return isHttpUrl(image.imageUrl) && isHttpUrl(image.sourcePageUrl);
 }
 
+function ResearchSiteIcon({ site }: { site: string }) {
+  const [useFallbackProvider, setUseFallbackProvider] = useState(false);
+  const [showInitial, setShowInitial] = useState(false);
+  const hostname = site.replace(/^www\./i, "");
+  const faviconUrl = useFallbackProvider
+    ? `https://icons.duckduckgo.com/ip3/${encodeURIComponent(hostname)}.ico`
+    : `https://www.google.com/s2/favicons?domain=${encodeURIComponent(hostname)}&sz=32`;
+
+  return (
+    <span className="flex h-4 w-4 shrink-0 items-center justify-center overflow-hidden rounded-sm bg-neutral-700 text-[10px] font-semibold text-neutral-200">
+      {showInitial ? (
+        <span aria-hidden="true">{hostname.charAt(0).toUpperCase()}</span>
+      ) : (
+        <Image
+          src={faviconUrl}
+          alt=""
+          width={16}
+          height={16}
+          loading="lazy"
+          unoptimized
+          referrerPolicy="no-referrer"
+          className="h-4 w-4"
+          onError={() => {
+            if (useFallbackProvider) setShowInitial(true);
+            else setUseFallbackProvider(true);
+          }}
+        />
+      )}
+    </span>
+  );
+}
+
+function isComposioPendingAction(value: unknown): value is ComposioPendingAction {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const action = value as Record<string, unknown>;
+  return (
+    typeof action.id === "string" &&
+    action.type === "composio.multi_execute" &&
+    Array.isArray(action.actions) &&
+    action.actions.length > 0 &&
+    action.actions.every((item) => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return false;
+      const nested = item as Record<string, unknown>;
+      return (
+        typeof nested.toolSlug === "string" &&
+        typeof nested.description === "string" &&
+        Boolean(nested.arguments) &&
+        typeof nested.arguments === "object" &&
+        !Array.isArray(nested.arguments)
+      );
+    })
+  );
+}
+
 async function readResearchResponse(
   response: Response,
   onSites: (sites: string[]) => void,
@@ -643,6 +719,7 @@ export default function ChatWindow() {
   const agentQueryHandledRef = useRef(false);
 
   const [input, setInput] = useState("");
+  const [thinkMode, setThinkMode] = useState(false);
   const [imageEditTarget, setImageEditTarget] = useState<Message | null>(null);
   const [imageEditPrompt, setImageEditPrompt] = useState("");
   const promptInputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -669,19 +746,25 @@ export default function ChatWindow() {
   const audioStreamRef = useRef<MediaStream | null>(null);
   const speechRecognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const speechTranscriptRef = useRef("");
+  const requestControllersRef = useRef(new Map<string, AbortController>());
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isHistoryVisible, setIsHistoryVisible] = useState(true);
   const [isHistorySearchOpen, setIsHistorySearchOpen] = useState(false);
   const [historySearchQuery, setHistorySearchQuery] = useState("");
   const [isImageHistoryOpen, setIsImageHistoryOpen] = useState(false);
+  const [isToolsOpen, setIsToolsOpen] = useState(false);
+  const [integrationToolkits, setIntegrationToolkits] = useState<IntegrationToolkit[]>([]);
+  const [isLoadingIntegrations, setIsLoadingIntegrations] = useState(false);
+  const [integrationError, setIntegrationError] = useState("");
+  const [integrationSearchQuery, setIntegrationSearchQuery] = useState("");
+  const [connectingToolkit, setConnectingToolkit] = useState<string | null>(null);
+  const [integrationRefreshKey, setIntegrationRefreshKey] = useState(0);
   const [generatedImages, setGeneratedImages] = useState<GeneratedImage[]>([]);
   const [isGeneratedImagesLoading, setIsGeneratedImagesLoading] = useState(false);
   const [generatedImagesHasMore, setGeneratedImagesHasMore] = useState(false);
   const [generatedImagesError, setGeneratedImagesError] = useState("");
   const generatedImageUrlsRef = useRef(new Set<string>());
   const generatedImageOffsetRef = useRef(0);
-  const timestampPressTimeoutRef = useRef<number | null>(null);
-  const [visibleTimestampIndex, setVisibleTimestampIndex] = useState<number | null>(null);
   const [pendingFile, setPendingFile] = useState<Message["file"] | null>(null);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>("auto");
@@ -718,13 +801,14 @@ export default function ChatWindow() {
   const [profilePicture, setProfilePicture] = useState("");
   const [planName, setPlanName] = useState("Free");
   const [usageLimit, setUsageLimit] = useState(100);
+  const thinkWouldExceedChatLimit = monthlyChatCount + (thinkMode ? THINK_MODE_USAGE_COST : 1) > usageLimit;
   const [, setDailyImageCount] = useState(0);
   const [, setDailyImageLimit] = useState(5);
   const [googleConnection, setGoogleConnection] = useState<GoogleConnectionStatus | null>(null);
   const [googleConnectionError, setGoogleConnectionError] = useState("");
   const [googleConnectionNotice, setGoogleConnectionNotice] = useState("");
   const [googleConnectionBusy, setGoogleConnectionBusy] = useState(false);
-  const [confirmingCyberAction, setConfirmingCyberAction] = useState<string | null>(null);
+  const [confirmingActionId, setConfirmingActionId] = useState<string | null>(null);
   const accountProfile = {
     name: user?.name || "Teller User",
     email: user?.email || "user@example.com",
@@ -841,34 +925,6 @@ export default function ChatWindow() {
     generatedImageUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
     generatedImageUrlsRef.current.clear();
   }, []);
-
-  useEffect(() => () => {
-    if (timestampPressTimeoutRef.current !== null) {
-      window.clearTimeout(timestampPressTimeoutRef.current);
-    }
-  }, []);
-
-  function cancelTimestampPress() {
-    if (timestampPressTimeoutRef.current !== null) {
-      window.clearTimeout(timestampPressTimeoutRef.current);
-      timestampPressTimeoutRef.current = null;
-    }
-  }
-
-  function startTimestampPress(index: number, event: ReactPointerEvent<HTMLDivElement>) {
-    if (event.pointerType === "mouse" && event.button !== 0) return;
-    cancelTimestampPress();
-    setVisibleTimestampIndex(null);
-    timestampPressTimeoutRef.current = window.setTimeout(() => {
-      setVisibleTimestampIndex(index);
-      timestampPressTimeoutRef.current = null;
-    }, 500);
-  }
-
-  function revealTimestamp(index: number) {
-    cancelTimestampPress();
-    setVisibleTimestampIndex(index);
-  }
 
   useEffect(() => {
     const textarea = promptInputRef.current;
@@ -1100,6 +1156,35 @@ export default function ChatWindow() {
     };
   }, [getAccessTokenSilently, histories, isAuthenticated]);
 
+  useEffect(() => {
+    if (!isToolsOpen || isAuthLoading || !isAuthenticated) return;
+    let cancelled = false;
+    void Promise.resolve().then(async () => {
+      if (cancelled) return;
+      setIsLoadingIntegrations(true);
+      setIntegrationError("");
+      try {
+        const token = await getAccessTokenSilently();
+        const response = await fetch("/api/composio/toolkits", {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: "no-store",
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Could not load app connectors.");
+        if (!Array.isArray(data.toolkits)) throw new Error("The app connector response was invalid.");
+        if (!cancelled) setIntegrationToolkits(data.toolkits as IntegrationToolkit[]);
+      } catch (error) {
+        if (!cancelled) setIntegrationError(getErrorMessage(error));
+      } finally {
+        if (!cancelled) setIsLoadingIntegrations(false);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [getAccessTokenSilently, integrationRefreshKey, isAuthenticated, isAuthLoading, isToolsOpen]);
+
   function switchMode(mode: AgentMode) {
     setIsModeMenuOpen(false);
     if (mode === activeAgent) return;
@@ -1118,6 +1203,7 @@ export default function ChatWindow() {
     setMessages(modeHistory.messages);
     setIsSidebarOpen(false);
     setIsImageHistoryOpen(false);
+    setIsToolsOpen(false);
   }
 
   function createNewChat(agent: AgentMode = activeAgent) {
@@ -1144,6 +1230,8 @@ export default function ChatWindow() {
     setActiveMapQuery("");
     setMessages(initialMessages);
     setIsSidebarOpen(false);
+    setIsImageHistoryOpen(false);
+    setIsToolsOpen(false);
   }
 
   function openUserPanel() {
@@ -1199,6 +1287,7 @@ export default function ChatWindow() {
     setMessages(h.messages);
     setIsSidebarOpen(false);
     setIsImageHistoryOpen(false);
+    setIsToolsOpen(false);
   }
 
   async function loadGeneratedImages(reset = false) {
@@ -1255,12 +1344,57 @@ export default function ChatWindow() {
 
   function openGeneratedImageHistory() {
     setIsImageHistoryOpen(true);
+    setIsToolsOpen(false);
     setIsSidebarOpen(false);
     if (!hasSession) {
       setGeneratedImagesError("Log in to view your generated images.");
       return;
     }
-    if (!generatedImages.length) void loadGeneratedImages(true);
+    void loadGeneratedImages(true);
+  }
+
+  function openGeneratedImageEditor(image: GeneratedImage) {
+    const history = histories.find((item) => item.id === image.historyId);
+    if (history) loadHistory(history.id);
+    else createNewChat("teller");
+    setImageEditTarget({
+      role: "assistant",
+      content: "Here’s the image you asked for.",
+      imageUrl: image.imageUrl,
+      imageStoragePath: `postgres:${image.id}`,
+    });
+    setImageEditPrompt("");
+    setIsImageHistoryOpen(false);
+  }
+
+  function openTools() {
+    setIsToolsOpen(true);
+    setIsImageHistoryOpen(false);
+    setIsSidebarOpen(false);
+  }
+
+  async function connectComposioToolkit(toolkit: string) {
+    setConnectingToolkit(toolkit);
+    setIntegrationError("");
+    try {
+      const token = await getAccessTokenSilently();
+      const response = await fetch("/api/composio/connect", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ toolkit }),
+      });
+      const data = await response.json();
+      if (!response.ok || typeof data.redirectUrl !== "string") {
+        throw new Error(data.error || "Could not start the app connection.");
+      }
+      window.location.assign(data.redirectUrl);
+    } catch (error) {
+      setIntegrationError(getErrorMessage(error));
+      setConnectingToolkit(null);
+    }
   }
 
   function setHistoryLoading(historyId: string, isLoading: boolean) {
@@ -1269,6 +1403,11 @@ export default function ChatWindow() {
     else next.delete(historyId);
     loadingHistoryIdsRef.current = next;
     setLoadingHistoryIds(next);
+  }
+
+  function stopActiveRequest() {
+    if (!activeHistoryId) return;
+    requestControllersRef.current.get(activeHistoryId)?.abort();
   }
 
   function setHistoryGeneratingImage(historyId: string, isGenerating: boolean) {
@@ -1372,8 +1511,12 @@ export default function ChatWindow() {
     const requestHistoryId = activeHistoryIdRef.current;
     if (!requestHistoryId) return;
     if (requestHistoryId && loadingHistoryIdsRef.current.has(requestHistoryId)) return;
-    setResearchSitesByHistory((previous) => ({ ...previous, [requestHistoryId]: [] }));
     const requestAgent = activeAgent;
+    const requestThinkMode = thinkMode;
+    const thinkUsageLimitMessage = "Think mode uses two chats per response. Turn it off or upgrade your plan to continue.";
+    const requestController = new AbortController();
+    requestControllersRef.current.set(requestHistoryId, requestController);
+    setResearchSitesByHistory((previous) => ({ ...previous, [requestHistoryId]: [] }));
     const requestFile = imageEditReference ? null : hasSession ? pendingFile : null;
     autoScrollToThinkingHistoryRef.current = requestHistoryId;
 
@@ -1405,17 +1548,27 @@ export default function ChatWindow() {
       setActiveMapQuery(userMessage.content);
     }
 
+    let generatedImageAssistantMessage: Message | null = null;
     try {
       if (requestAgent === "cyber") {
         if (requestFile) throw new Error("CyberMail currently works with Gmail and Calendar, not file attachments. Remove the attachment and try again.");
+        if (
+          requestThinkMode &&
+          monthlyChatCount + THINK_MODE_USAGE_COST > usageLimit &&
+          !isMemoryRequest
+        ) {
+          throw new Error(thinkUsageLimitMessage);
+        }
         const token = isAuthenticated ? await getAccessTokenSilently() : null;
         const response = await fetch("/api/cyber-agent", {
           method: "POST",
+          signal: requestController.signal,
           headers: {
             "Content-Type": "application/json",
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
           body: JSON.stringify({
+            thinkMode: requestThinkMode,
             messages: updatedMessages.map(({ role, content }) => ({ role, content })),
           }),
         });
@@ -1435,6 +1588,14 @@ export default function ChatWindow() {
       }
       if (requestAgent === "maps" && requestFile) {
         throw new Error("CyberMaps works with locations and directions, not file attachments. Remove the attachment and try again.");
+      }
+      if (
+        requestAgent === "maps" &&
+        requestThinkMode &&
+        monthlyChatCount + THINK_MODE_USAGE_COST > usageLimit &&
+        !isMemoryRequest
+      ) {
+        throw new Error(thinkUsageLimitMessage);
       }
 
       const hasImageUpload = Boolean(requestFile?.type.startsWith("image/"));
@@ -1462,14 +1623,14 @@ export default function ChatWindow() {
       );
       const explicitImageIntent = isExplicitImageGenerationRequest(userMessage.content);
       let classifiedImageIntent = false;
+      let classifiedOtherIntent = false;
       let imageIntentClassificationFailed = false;
       const useImageIntentHeuristic = (
         !isAuthenticated ||
         requestAgent !== "teller" ||
         userMessage.content.length > 4000
       );
-      if (!explicitImageIntent &&
-        requestAgent === "teller" &&
+      if (requestAgent === "teller" &&
         isAuthenticated &&
         userMessage.content.length <= 4000 &&
         (!requestFile || hasImageUpload)) {
@@ -1478,6 +1639,7 @@ export default function ChatWindow() {
         try {
           classificationResponse = await fetch("/api/images/classify", {
             method: "POST",
+            signal: requestController.signal,
             headers: {
               "Content-Type": "application/json",
               Authorization: `Bearer ${token}`,
@@ -1518,6 +1680,8 @@ export default function ChatWindow() {
             typeof classificationData.isImageGenerationIntent === "boolean"
           ) {
             classifiedImageIntent = classificationData.isImageGenerationIntent;
+            classifiedOtherIntent = "hasOtherIntent" in classificationData &&
+              classificationData.hasOtherIntent === true;
           } else {
             imageIntentClassificationFailed = true;
           }
@@ -1540,6 +1704,19 @@ export default function ChatWindow() {
             ((useImageIntentHeuristic || imageIntentClassificationFailed) &&
               isImageGenerationPrompt(userMessage.content))
           );
+      const shouldHandleOtherIntent = classifiedOtherIntent || (
+        imageIntentClassificationFailed &&
+        shouldGenerateImage &&
+        /\b(?:also|and then|then|as well as|plus)\b/i.test(userMessage.content)
+      );
+      if (
+        requestThinkMode &&
+        (!shouldGenerateImage || shouldHandleOtherIntent) &&
+        monthlyChatCount + THINK_MODE_USAGE_COST > usageLimit &&
+        !isMemoryRequest
+      ) {
+        throw new Error(thinkUsageLimitMessage);
+      }
 
       if (shouldGenerateImage && !isAuthenticated) {
         const assistantMessage: Message = {
@@ -1570,6 +1747,7 @@ export default function ChatWindow() {
         const token = isAuthenticated ? await getAccessTokenSilently() : null;
         const imageResponse = await fetch("/api/images/generate", {
           method: "POST",
+          signal: requestController.signal,
           headers: {
             "Content-Type": "application/json",
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -1606,7 +1784,7 @@ export default function ChatWindow() {
           setDailyImageCount((count) => count + 1);
         }
 
-        const assistantMessage: Message = {
+        generatedImageAssistantMessage = {
           role: "assistant",
           content: "Here’s the image you asked for.",
           createdAt: Date.now(),
@@ -1614,10 +1792,13 @@ export default function ChatWindow() {
           imageStoragePath: imageData.imageStoragePath,
           imageDescription: imageData.imageDescription,
         };
-        const nextMessages = [...updatedMessages, assistantMessage];
-        if (activeHistoryIdRef.current === requestHistoryId) setMessages(nextMessages);
-        updateHistoryMessages(requestHistoryId, nextMessages, { agent: requestAgent });
-        return;
+        void loadGeneratedImages(true);
+        if (!shouldHandleOtherIntent) {
+          const nextMessages = [...updatedMessages, generatedImageAssistantMessage];
+          if (activeHistoryIdRef.current === requestHistoryId) setMessages(nextMessages);
+          updateHistoryMessages(requestHistoryId, nextMessages, { agent: requestAgent });
+          return;
+        }
       }
 
       const token = isAuthenticated ? await getAccessTokenSilently() : null;
@@ -1628,12 +1809,15 @@ export default function ChatWindow() {
       );
       const response = await fetch("/api/chat", {
         method: "POST",
+        signal: requestController.signal,
         headers: {
           "Content-Type": "application/json",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
           agent: requestAgent,
+          thinkMode: requestThinkMode,
+          generatedImageHandled: Boolean(generatedImageAssistantMessage),
           clarifyImageIntent: imageIntentClassificationFailed && !explicitImageIntent,
           messages: updatedMessages.map((msg, index) => {
             const isCurrentImage = msg === userMessage && msg.file?.type.startsWith("image/");
@@ -1674,13 +1858,22 @@ export default function ChatWindow() {
 
       if (data.reply) {
         if (isAuthenticated && !hasServerUsageCount && !data.memoryAction) {
-          setMonthlyChatCount((count) => count + 1);
+          setMonthlyChatCount((count) => count + (requestThinkMode ? THINK_MODE_USAGE_COST : 1));
         }
         const assistantMessage: Message = {
           role: "assistant",
-          content: data.reply,
+          content: generatedImageAssistantMessage
+            ? `Generated the image you requested.\n\n${data.reply}`
+            : data.reply,
           createdAt: Date.now(),
           file: null,
+          ...(generatedImageAssistantMessage
+            ? {
+                imageUrl: generatedImageAssistantMessage.imageUrl,
+                imageStoragePath: generatedImageAssistantMessage.imageStoragePath,
+                imageDescription: generatedImageAssistantMessage.imageDescription,
+              }
+            : {}),
           ...(Array.isArray(data.choices)
             ? {
                 choices: data.choices.filter(
@@ -1695,6 +1888,9 @@ export default function ChatWindow() {
                   .slice(0, 12),
               }
             : {}),
+          ...(isComposioPendingAction(data.pendingAction)
+            ? { pendingAction: data.pendingAction }
+            : {}),
         };
         const nextMessages = [...updatedMessages, assistantMessage];
         if (activeHistoryIdRef.current === requestHistoryId) setMessages(nextMessages);
@@ -1702,20 +1898,47 @@ export default function ChatWindow() {
       } else {
         const nextMessages: Message[] = [
           ...updatedMessages,
-          { role: "assistant", content: "Sorry, something went wrong.", file: null, createdAt: Date.now() },
+          {
+            ...(generatedImageAssistantMessage || {}),
+            role: "assistant",
+            content: generatedImageAssistantMessage
+              ? "Generated the image you requested, but I could not complete the other part of your request."
+              : "Sorry, something went wrong.",
+            file: null,
+            createdAt: Date.now(),
+          },
         ];
         if (activeHistoryIdRef.current === requestHistoryId) setMessages(nextMessages);
         updateHistoryMessages(requestHistoryId, nextMessages, { agent: requestAgent });
       }
     } catch (err) {
+      if (requestController.signal.aborted) {
+        if (generatedImageAssistantMessage) {
+          const nextMessages = [...updatedMessages, generatedImageAssistantMessage];
+          if (activeHistoryIdRef.current === requestHistoryId) setMessages(nextMessages);
+          updateHistoryMessages(requestHistoryId, nextMessages, { agent: requestAgent });
+        }
+        return;
+      }
       const errorMessage = getErrorMessage(err) || "Network error. Please try again.";
       const nextMessages: Message[] = [
         ...updatedMessages,
-        { role: "assistant", content: errorMessage, file: null, createdAt: Date.now() },
+        {
+          ...(generatedImageAssistantMessage || {}),
+          role: "assistant",
+          content: generatedImageAssistantMessage
+            ? `Generated the image you requested, but could not complete the other part: ${errorMessage}`
+            : errorMessage,
+          file: null,
+          createdAt: Date.now(),
+        },
       ];
       if (activeHistoryIdRef.current === requestHistoryId) setMessages(nextMessages);
       updateHistoryMessages(requestHistoryId, nextMessages, { agent: requestAgent });
     } finally {
+      if (requestControllersRef.current.get(requestHistoryId) === requestController) {
+        requestControllersRef.current.delete(requestHistoryId);
+      }
       setHistoryLoading(requestHistoryId, false);
       setHistoryGeneratingImage(requestHistoryId, false);
       setResearchSitesByHistory((previous) => {
@@ -1769,8 +1992,8 @@ export default function ChatWindow() {
 
   async function confirmCyberAction(messageIndex: number) {
     const action = messages[messageIndex]?.pendingAction;
-    if (!action) return;
-    setConfirmingCyberAction(action.id);
+    if (!action || action.type === "composio.multi_execute") return;
+    setConfirmingActionId(action.id);
     try {
       const token = await getAccessTokenSilently();
       const response = await fetch("/api/cyber-agent/confirm", {
@@ -1827,7 +2050,88 @@ export default function ChatWindow() {
           : [message]
       )));
     } finally {
-      setConfirmingCyberAction(null);
+      setConfirmingActionId(null);
+    }
+  }
+
+  async function confirmComposioAction(messageIndex: number) {
+    const action = messages[messageIndex]?.pendingAction;
+    if (!action || action.type !== "composio.multi_execute") return;
+    setConfirmingActionId(action.id);
+    try {
+      const token = await getAccessTokenSilently();
+      const response = await fetch("/api/composio/confirm", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ actionId: action.id }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not complete the confirmed actions.");
+      const resultMessage = `${data.message || "Connected-app actions executed."}${typeof data.result === "string" ? `\n\n\`\`\`json\n${data.result}\n\`\`\`` : ""}`;
+      const resultAssistantMessage: Message = {
+        role: "assistant",
+        content: resultMessage,
+        createdAt: Date.now(),
+      };
+      setMessages((current) => current.flatMap((message) => (
+        message.pendingAction?.id === action.id
+          ? [{ ...message, pendingAction: undefined }, resultAssistantMessage]
+          : [message]
+      )));
+      if (activeHistoryId) {
+        setHistories((previous) => previous.map((history) => (
+          history.id === activeHistoryId
+            ? {
+                ...history,
+                messages: history.messages.flatMap((message) => (
+                  message.pendingAction?.id === action.id
+                    ? [{ ...message, pendingAction: undefined }, resultAssistantMessage]
+                    : [message]
+                )),
+                updatedAt: Date.now(),
+              }
+            : history
+        )));
+      }
+    } catch (error) {
+      const resultAssistantMessage: Message = {
+        role: "assistant",
+        content: `The confirmed action could not be completed: ${getErrorMessage(error)}`,
+        createdAt: Date.now(),
+      };
+      setMessages((current) => current.flatMap((message) => (
+        message.pendingAction?.id === action.id
+          ? [{ ...message, pendingAction: undefined }, resultAssistantMessage]
+          : [message]
+      )));
+      if (activeHistoryId) {
+        setHistories((previous) => previous.map((history) => (
+          history.id === activeHistoryId
+            ? {
+                ...history,
+                messages: history.messages.flatMap((message) => (
+                  message.pendingAction?.id === action.id
+                    ? [{ ...message, pendingAction: undefined }, resultAssistantMessage]
+                    : [message]
+                )),
+                updatedAt: Date.now(),
+              }
+            : history
+        )));
+      }
+    } finally {
+      setConfirmingActionId(null);
+    }
+  }
+
+  function confirmPendingAction(messageIndex: number) {
+    if (messages[messageIndex]?.pendingAction?.type === "composio.multi_execute") {
+      void confirmComposioAction(messageIndex);
+    } else {
+      void confirmCyberAction(messageIndex);
     }
   }
 
@@ -2193,17 +2497,30 @@ export default function ChatWindow() {
               </div>
             </div>
 
-            <button
-              type="button"
-              onClick={openGeneratedImageHistory}
-              aria-current={isImageHistoryOpen ? "page" : undefined}
-              className={`chat-image-history-button flex w-full items-center gap-2 rounded-lg px-4 py-2 text-left font-medium transition hover:bg-neutral-800 ${
-                isImageHistoryOpen ? "bg-neutral-800 text-white" : "text-neutral-300"
-              }`}
-            >
-              <Images size={18} aria-hidden="true" />
-              File history
-            </button>
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={openGeneratedImageHistory}
+                aria-current={isImageHistoryOpen ? "page" : undefined}
+                className={`chat-sidebar-page-button flex w-full items-center gap-2 rounded-lg px-4 py-2 text-left font-medium transition hover:bg-neutral-800 ${
+                  isImageHistoryOpen ? "bg-neutral-800 text-white" : "text-neutral-300"
+                }`}
+              >
+                <Images size={18} aria-hidden="true" />
+                File history
+              </button>
+              <button
+                type="button"
+                onClick={openTools}
+                aria-current={isToolsOpen ? "page" : undefined}
+                className={`chat-sidebar-page-button flex w-full items-center gap-2 rounded-lg px-4 py-2 text-left font-medium transition hover:bg-neutral-800 ${
+                  isToolsOpen ? "bg-neutral-800 text-white" : "text-neutral-300"
+                }`}
+              >
+                <Wrench size={18} aria-hidden="true" />
+                Tools
+              </button>
+            </div>
             {/* file attach control moved to the input area (left of prompt) */}
 
           </div>
@@ -2273,9 +2590,9 @@ export default function ChatWindow() {
                     {visibleModeHistories.map((h) => (
                       <div
                         key={h.id}
-                        className={`group flex items-center gap-1 rounded-lg border p-1 transition-[color,background-color,border-color,opacity] duration-200 ${
+                        className={`group flex items-center gap-1 rounded-full border p-1 transition-[color,background-color,border-color,opacity] duration-200 ${
                           h.id === activeHistoryId
-                            ? "chat-history-active border-sky-400/25 bg-sky-400/[0.08] shadow-[inset_2px_0_0_0_rgba(56,189,248,0.8)]"
+                            ? "border-neutral-700 bg-neutral-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
                             : `border-white/[0.06] bg-white/[0.025] hover:border-white/10 hover:bg-white/[0.05] ${
                                 loadingHistoryIds.size > 0 && !loadingHistoryIds.has(h.id)
                                   ? "opacity-40"
@@ -2287,9 +2604,9 @@ export default function ChatWindow() {
                           type="button"
                           onClick={() => loadHistory(h.id)}
                           aria-current={h.id === activeHistoryId ? "page" : undefined}
-                          className="min-w-0 flex-1 px-2 py-1.5 text-left"
+                          className="min-w-0 flex-1 rounded-full px-3 py-1.5 text-left"
                         >
-                          <span className={`flex min-w-0 items-center gap-1.5 truncate text-xs ${h.id === activeHistoryId ? "chat-history-active-title font-medium text-sky-100" : "text-neutral-200 group-hover:text-white"}`}>
+                          <span className={`flex min-w-0 items-center gap-1.5 truncate text-xs ${h.id === activeHistoryId ? "font-medium text-neutral-100" : "text-neutral-200 group-hover:text-white"}`}>
                             {loadingHistoryIds.has(h.id) && (
                               <span
                                 role="status"
@@ -2300,9 +2617,6 @@ export default function ChatWindow() {
                               </span>
                             )}
                             <span className="truncate">{h.title}</span>
-                          </span>
-                          <span className="mt-0.5 block truncate text-[10px] text-neutral-500">
-                            {new Date(h.updatedAt).toLocaleString()}
                           </span>
                         </button>
                         <button
@@ -2470,7 +2784,135 @@ export default function ChatWindow() {
           </div>
         </header>
 
-        {isImageHistoryOpen ? (
+        {isToolsOpen ? (
+          <section aria-labelledby="tools-heading" className="min-h-0 flex-1 overflow-y-auto p-4 modern-scroll">
+            <div className="mx-auto max-w-6xl">
+              <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h1 id="tools-heading" className="text-2xl font-semibold text-white">Tools</h1>
+                  <p className="mt-1 text-sm text-neutral-400">Browse app connectors and manage account connections.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsToolsOpen(false);
+                    setIntegrationSearchQuery("");
+                  }}
+                  className="rounded-lg border border-neutral-700 px-4 py-2 text-sm text-neutral-200 hover:bg-neutral-800"
+                >
+                  Back to chat
+                </button>
+              </div>
+
+              {integrationError && (
+                <p className="mb-4 rounded-lg border border-rose-900/70 bg-rose-950/40 px-4 py-3 text-sm text-rose-200" role="alert">
+                  {integrationError}
+                </p>
+              )}
+
+              {!isAuthenticated && !isAuthLoading ? (
+                <div className="rounded-xl border border-neutral-800 bg-neutral-900 px-5 py-10 text-center">
+                  <p className="text-neutral-300">Sign in to browse and connect app integrations.</p>
+                  <button
+                    type="button"
+                    onClick={() => loginWithRedirect()}
+                    className="mt-4 rounded-lg bg-white px-4 py-2 text-sm font-semibold text-neutral-950 hover:bg-neutral-200"
+                  >
+                    Log in
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+                    <label className="relative min-w-56 flex-1">
+                      <Search size={16} aria-hidden="true" className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" />
+                      <input
+                        type="search"
+                        value={integrationSearchQuery}
+                        onChange={(event) => setIntegrationSearchQuery(event.target.value)}
+                        placeholder="Search app integrations"
+                        aria-label="Search app integrations"
+                        className="w-full rounded-lg border border-neutral-700 bg-neutral-950 py-2 pl-9 pr-3 text-sm text-white placeholder:text-neutral-500 focus:border-neutral-500 focus:outline-none focus:ring-2 focus:ring-neutral-500/20"
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setIntegrationRefreshKey((current) => current + 1)}
+                      disabled={isLoadingIntegrations}
+                      className="rounded-lg border border-neutral-700 px-3 py-2 text-sm text-neutral-200 transition hover:bg-neutral-800 disabled:opacity-50"
+                    >
+                      {isLoadingIntegrations ? "Refreshing..." : "Refresh"}
+                    </button>
+                  </div>
+
+                  {isLoadingIntegrations && integrationToolkits.length === 0 ? (
+                    <div className="flex items-center justify-center gap-2 py-16 text-neutral-400" role="status">
+                      <LoaderCircle size={18} className="animate-spin" aria-hidden="true" />
+                      Loading app integrations...
+                    </div>
+                  ) : integrationToolkits.length === 0 && !integrationError ? (
+                    <p className="rounded-xl border border-dashed border-neutral-700 px-4 py-16 text-center text-neutral-400">
+                      No app integrations are currently available.
+                    </p>
+                  ) : (
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                      {integrationToolkits
+                        .filter((toolkit) => (
+                          !integrationSearchQuery.trim() ||
+                          toolkit.name.toLocaleLowerCase().includes(integrationSearchQuery.trim().toLocaleLowerCase()) ||
+                          toolkit.slug.toLocaleLowerCase().includes(integrationSearchQuery.trim().toLocaleLowerCase())
+                        ))
+                        .map((toolkit) => (
+                          <article key={toolkit.slug} className="flex min-h-44 flex-col rounded-2xl border border-neutral-800 bg-neutral-900 p-4">
+                            <div className="flex items-start gap-3">
+                              <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-neutral-700 bg-neutral-800">
+                                {toolkit.logo ? (
+                                  <Image
+                                    src={toolkit.logo}
+                                    alt=""
+                                    width={40}
+                                    height={40}
+                                    unoptimized
+                                    className="h-full w-full object-contain"
+                                  />
+                                ) : (
+                                  <Wrench size={18} className="text-neutral-300" aria-hidden="true" />
+                                )}
+                              </span>
+                              <div className="min-w-0 flex-1">
+                                <h2 className="truncate font-semibold text-white">{toolkit.name}</h2>
+                                <p className="mt-1 text-xs text-neutral-500">{toolkit.connected ? "Connected" : "Not connected"}</p>
+                              </div>
+                              {toolkit.connected && <Check size={17} className="mt-0.5 shrink-0 text-emerald-300" aria-label="Connected" />}
+                            </div>
+                            {toolkit.description && (
+                              <p className="mt-3 line-clamp-3 flex-1 text-sm leading-5 text-neutral-400">{toolkit.description}</p>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => void connectComposioToolkit(toolkit.slug)}
+                              disabled={connectingToolkit !== null}
+                              className="mt-4 self-start rounded-full border border-neutral-700 px-4 py-2 text-sm font-medium text-neutral-200 transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {connectingToolkit === toolkit.slug
+                                ? "Connecting..."
+                                : toolkit.connected ? "Reconnect" : "Connect"}
+                            </button>
+                          </article>
+                        ))}
+                    </div>
+                  )}
+                  {!isLoadingIntegrations && integrationToolkits.length > 0 && integrationSearchQuery.trim() && !integrationToolkits.some((toolkit) => (
+                    toolkit.name.toLocaleLowerCase().includes(integrationSearchQuery.trim().toLocaleLowerCase()) ||
+                    toolkit.slug.toLocaleLowerCase().includes(integrationSearchQuery.trim().toLocaleLowerCase())
+                  )) && (
+                    <p className="py-12 text-center text-sm text-neutral-400">No integrations match that search.</p>
+                  )}
+                </>
+              )}
+            </div>
+          </section>
+        ) : isImageHistoryOpen ? (
           <section aria-labelledby="generated-image-history-heading" className="min-h-0 flex-1 overflow-y-auto p-4 modern-scroll">
             <div className="mx-auto max-w-6xl">
               <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
@@ -2521,9 +2963,18 @@ export default function ChatWindow() {
                       </a>
                       <div className="flex items-center justify-between gap-2 px-3 py-2 text-xs text-neutral-400">
                         <time dateTime={image.createdAt}>{new Date(image.createdAt).toLocaleString()}</time>
-                        <a href={image.imageUrl} download={`teller-generated-${image.id}.png`} className="shrink-0 rounded px-2 py-1 text-neutral-200 hover:bg-neutral-800">
-                          Download
-                        </a>
+                        <div className="flex shrink-0 items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => openGeneratedImageEditor(image)}
+                            className="rounded px-2 py-1 text-neutral-200 hover:bg-neutral-800"
+                          >
+                            Edit
+                          </button>
+                          <a href={image.imageUrl} download={`teller-generated-${image.id}.png`} className="rounded px-2 py-1 text-neutral-200 hover:bg-neutral-800">
+                            Download
+                          </a>
+                        </div>
                       </div>
                     </article>
                   ))}
@@ -2681,16 +3132,11 @@ export default function ChatWindow() {
               message.role === "user" && message.file ? null :
               <div
                 key={index}
-                onPointerDown={(event) => startTimestampPress(index, event)}
-                onPointerUp={cancelTimestampPress}
-                onPointerCancel={cancelTimestampPress}
-                onPointerLeave={cancelTimestampPress}
-                onContextMenu={() => revealTimestamp(index)}
                 className={message.role === "assistant"
-                  ? `chat-assistant-message min-w-0 w-full [overflow-wrap:anywhere] ${
+                  ? `chat-assistant-message group min-w-0 w-full [overflow-wrap:anywhere] ${
                     index === latestAssistantMessageIndex ? "chat-assistant-enter" : ""
                   }`
-                  : "ml-auto min-w-0 max-w-[85%] overflow-hidden rounded-[2rem] bg-blue-600 p-4 [overflow-wrap:anywhere] shadow-md shadow-blue-950/30 transition-transform duration-300 ease-out hover:scale-[1.015] active:scale-[0.99] motion-reduce:transition-none"}
+                  : "group ml-auto min-w-0 max-w-[85%] overflow-hidden rounded-[2rem] bg-blue-600 p-4 [overflow-wrap:anywhere] shadow-md shadow-blue-950/30 transition-transform duration-300 ease-out hover:scale-[1.015] active:scale-[0.99] motion-reduce:transition-none"}
               >
                 <div className="min-w-0 max-w-full text-sm leading-7 [overflow-wrap:anywhere]">
                   {message.role === "assistant" &&
@@ -2719,7 +3165,7 @@ export default function ChatWindow() {
                             key={choice}
                             type="button"
                             onClick={() => void sendMessage(choice)}
-                            disabled={loading || monthlyChatCount >= usageLimit}
+                            disabled={loading || (thinkMode ? thinkWouldExceedChatLimit : monthlyChatCount >= usageLimit)}
                             className="rounded-full border border-neutral-600 bg-neutral-900/70 px-3 py-2 text-left text-xs leading-5 text-neutral-200 transition hover:border-neutral-400 hover:bg-neutral-700 disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             {choice}
@@ -2836,9 +3282,24 @@ export default function ChatWindow() {
                   {message.pendingAction && (
                     <div className="mt-4 rounded-lg border border-amber-400/30 bg-amber-400/5 p-3 text-sm">
                       <p className="font-medium text-amber-100">
-                        {message.pendingAction.type === "gmail.create_draft" ? "Create this Gmail draft?" : "Add this calendar event?"}
+                        {message.pendingAction.type === "composio.multi_execute"
+                          ? "Run these connected-app actions?"
+                          : message.pendingAction.type === "gmail.create_draft"
+                            ? "Create this Gmail draft?"
+                            : "Add this calendar event?"}
                       </p>
-                      {message.pendingAction.type === "gmail.create_draft" ? (
+                      {message.pendingAction.type === "composio.multi_execute" ? (
+                        <ul className="mt-2 space-y-3 text-neutral-300">
+                          {message.pendingAction.actions.map((action, actionIndex) => (
+                            <li key={`${action.toolSlug}-${actionIndex}`} className="rounded-md bg-neutral-900/70 p-2">
+                              <p className="text-xs font-medium text-neutral-200">{action.description}</p>
+                              <pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-words text-[11px] leading-4 text-neutral-400">
+                                {JSON.stringify(action.arguments, null, 2)}
+                              </pre>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : message.pendingAction.type === "gmail.create_draft" ? (
                         <dl className="mt-2 space-y-1 text-neutral-300">
                           <div><dt className="inline text-neutral-500">To: </dt><dd className="inline">{String(message.pendingAction.arguments.to || "")}</dd></div>
                           <div><dt className="inline text-neutral-500">Subject: </dt><dd className="inline">{String(message.pendingAction.arguments.subject || "")}</dd></div>
@@ -2857,16 +3318,20 @@ export default function ChatWindow() {
                       <div className="mt-3 flex gap-2">
                         <button
                           type="button"
-                          onClick={() => void confirmCyberAction(index)}
-                          disabled={confirmingCyberAction === message.pendingAction.id}
+                          onClick={() => confirmPendingAction(index)}
+                          disabled={confirmingActionId === message.pendingAction.id}
                           className="rounded-md bg-white px-3 py-1.5 text-xs font-semibold text-neutral-950 disabled:opacity-50"
                         >
-                          {confirmingCyberAction === message.pendingAction.id ? "Working..." : "Confirm"}
+                          {confirmingActionId === message.pendingAction.id
+                            ? "Working..."
+                            : message.pendingAction.type === "composio.multi_execute"
+                              ? "Confirm and run"
+                              : "Confirm"}
                         </button>
                         <button
                           type="button"
                           onClick={() => setMessages((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, pendingAction: undefined } : item))}
-                          disabled={confirmingCyberAction === message.pendingAction.id}
+                          disabled={confirmingActionId === message.pendingAction.id}
                           className="rounded-md border border-neutral-600 px-3 py-1.5 text-xs text-neutral-200 hover:bg-neutral-700 disabled:opacity-50"
                         >
                           Not now
@@ -2880,22 +3345,20 @@ export default function ChatWindow() {
                   voiceReplyError.content === getVoiceContent(message) && (
                   <p className="mt-2 text-xs text-rose-300" role="alert">{voiceReplyError.message}</p>
                 )}
-                <div
-                  aria-hidden={visibleTimestampIndex !== index}
-                  className={`overflow-hidden text-xs transition-[max-height,opacity,margin] duration-300 ease-out motion-reduce:transition-none ${
-                    visibleTimestampIndex === index
-                      ? `mt-2 max-h-8 opacity-100 ${message.role === "user" ? "text-right text-blue-100/70" : "text-neutral-500"}`
-                      : "mt-0 max-h-0 opacity-0"
-                  }`}
-                >
-                  {message.createdAt !== undefined ? (
-                    <time dateTime={new Date(message.createdAt).toISOString()}>
-                      {new Date(message.createdAt).toLocaleString()}
-                    </time>
-                  ) : (
-                    <span>Timestamp unavailable for this saved message</span>
-                  )}
-                </div>
+                {typeof message.createdAt === "number" &&
+                  Number.isFinite(new Date(message.createdAt).getTime()) && (
+                  <time
+                    dateTime={new Date(message.createdAt).toISOString()}
+                    className={`block max-h-0 translate-y-[-0.25rem] overflow-hidden text-xs text-neutral-500 opacity-0 transition-[max-height,opacity,transform] duration-200 ease-out group-hover:max-h-6 group-hover:translate-y-0 group-hover:opacity-100 group-focus-within:max-h-6 group-focus-within:translate-y-0 group-focus-within:opacity-100 motion-reduce:transition-none ${
+                      message.role === "user" ? "text-right" : ""
+                    }`}
+                  >
+                    {new Date(message.createdAt).toLocaleTimeString([], {
+                      hour: "numeric",
+                      minute: "2-digit",
+                    })}
+                  </time>
+                )}
               </div>
             ))}
 
@@ -2914,7 +3377,7 @@ export default function ChatWindow() {
                         key={prompt}
                         type="button"
                         onClick={() => void sendMessage(prompt)}
-                        disabled={loading || monthlyChatCount >= usageLimit}
+                        disabled={loading || (thinkMode ? thinkWouldExceedChatLimit : monthlyChatCount >= usageLimit)}
                         className="rounded-full border border-neutral-600 bg-neutral-900/70 px-3 py-2 text-left text-xs leading-5 text-neutral-200 transition hover:border-sky-400/50 hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         {prompt}
@@ -2937,18 +3400,7 @@ export default function ChatWindow() {
                     title={site}
                     className="inline-flex max-w-48 items-center gap-1.5 rounded-full bg-neutral-800/80 px-2 py-1 text-[11px] text-neutral-300"
                   >
-                    <img
-                      src={`https://www.google.com/s2/favicons?domain=${encodeURIComponent(site)}&sz=32`}
-                      alt=""
-                      width={16}
-                      height={16}
-                      loading="lazy"
-                      referrerPolicy="no-referrer"
-                      className="h-4 w-4 shrink-0 rounded-sm"
-                      onError={(event) => {
-                        event.currentTarget.hidden = true;
-                      }}
-                    />
+                    <ResearchSiteIcon site={site} />
                     <span className="truncate">{site}</span>
                   </span>
                 ))}
@@ -3167,13 +3619,30 @@ export default function ChatWindow() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => void sendMessage()}
-                  disabled={loading || isTranscribing || (!input.trim() && !pendingFile)}
-                  className="order-5 flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white text-neutral-950 transition-colors hover:bg-neutral-200 disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400"
-                  aria-label="Send message"
-                  title="Send message"
+                  onClick={() => setThinkMode((enabled) => !enabled)}
+                  disabled={loading}
+                  className={`order-5 flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                    thinkMode
+                      ? "bg-sky-400 text-neutral-950 shadow-[0_0_16px_rgba(56,189,248,0.35)] hover:bg-sky-300"
+                      : "text-neutral-300 hover:bg-neutral-800 hover:text-white"
+                  }`}
+                  aria-label="Think mode"
+                  aria-pressed={thinkMode}
+                  title="Think responses use two chats and provide more detailed, carefully considered answers"
                 >
-                  <ArrowUp size={21} strokeWidth={2.5} aria-hidden="true" />
+                  <BrainCircuit size={21} strokeWidth={1.8} aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => loading ? stopActiveRequest() : void sendMessage()}
+                  disabled={!loading && (isTranscribing || (!input.trim() && !pendingFile))}
+                  className={`order-6 flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-colors disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400 ${loading ? "bg-rose-500 text-white hover:bg-rose-400" : "bg-white text-neutral-950 hover:bg-neutral-200"}`}
+                  aria-label={loading ? (isGeneratingImage ? "Stop image generation" : "Stop response") : "Send message"}
+                  title={loading ? (isGeneratingImage ? "Stop image generation" : "Stop response") : "Send message"}
+                >
+                  {loading
+                    ? <Square size={18} strokeWidth={3} fill="currentColor" aria-hidden="true" />
+                    : <ArrowUp size={21} strokeWidth={2.5} aria-hidden="true" />}
                 </button>
                 </div>
                 {speechError && <p className="px-3 pt-2 text-xs text-rose-300" role="alert">{speechError}</p>}
@@ -3218,7 +3687,7 @@ export default function ChatWindow() {
                 <X size={18} aria-hidden="true" />
               </button>
             </div>
-            <div className="min-h-0 overflow-auto bg-black/20 p-3 sm:p-5">
+            <div className="min-h-0 overflow-auto p-3 sm:p-5">
               <img
                 src={imageEditTarget.imageUrl}
                 alt={imageEditTarget.imageDescription || "Image selected for editing"}
@@ -3236,14 +3705,14 @@ export default function ChatWindow() {
                 Describe the changes you want
               </label>
               <div className="flex flex-col gap-3 sm:flex-row">
-                <textarea
+                <input
                   id="image-edit-prompt"
+                  type="text"
                   autoFocus
-                  rows={2}
                   value={imageEditPrompt}
                   onChange={(event) => setImageEditPrompt(event.target.value)}
                   placeholder="What would you like to change?"
-                  className="min-h-12 min-w-0 flex-1 resize-y rounded-xl border border-neutral-700 bg-neutral-950 px-4 py-3 text-sm text-white outline-none placeholder:text-neutral-500 focus:border-sky-400"
+                  className="h-12 min-w-0 flex-1 rounded-full border border-neutral-700 bg-neutral-950 px-5 text-sm text-white outline-none placeholder:text-neutral-500 focus:border-sky-400"
                 />
                 <button
                   type="submit"

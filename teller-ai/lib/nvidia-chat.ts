@@ -8,6 +8,7 @@ async function callNvidiaCompletion<T>(
   requestBody: Record<string, unknown>,
   config: ReturnType<typeof getNvidiaAIConfig>,
   modelOverride?: string,
+  signal?: AbortSignal,
 ): Promise<T> {
   const response = await fetch(config.apiBaseUrl, {
     method: "POST",
@@ -17,6 +18,7 @@ async function callNvidiaCompletion<T>(
     },
     body: JSON.stringify({ ...requestBody, model: modelOverride?.trim() || config.model }),
     cache: "no-store",
+    ...(signal ? { signal } : {}),
   });
 
   if (!response.ok) {
@@ -32,8 +34,9 @@ async function callNvidiaCompletion<T>(
 export async function callNvidiaChatCompletion<T = unknown>(
   requestBody: Record<string, unknown>,
   modelOverride?: string,
+  signal?: AbortSignal,
 ): Promise<T> {
-  return callNvidiaCompletion<T>(requestBody, getNvidiaChatConfig(), modelOverride);
+  return callNvidiaCompletion<T>(requestBody, getNvidiaChatConfig(), modelOverride, signal);
 }
 
 export async function callNvidiaModelCompletion<T = unknown>(
