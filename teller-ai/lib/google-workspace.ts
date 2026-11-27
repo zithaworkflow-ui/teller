@@ -19,8 +19,6 @@ const GOOGLE_SCOPES = [
   "openid",
   "email",
   "profile",
-  "https://www.googleapis.com/auth/gmail.readonly",
-  "https://www.googleapis.com/auth/gmail.compose",
   "https://www.googleapis.com/auth/calendar.events",
 ];
 
@@ -203,7 +201,7 @@ export async function disconnectGoogleAccount(userId: string) {
 
 export async function getGoogleAccessToken(userId: string) {
   const connection = await getGoogleConnection(userId);
-  if (!connection) throw new Error("Connect a Google account to use CyberMail.");
+  if (!connection) throw new Error("Connect Google Calendar to use CyberMail's Calendar tools.");
   const tokens = decryptTokens(connection.encryptedTokens);
   if (tokens.expiresAt > Date.now() + 60_000) return tokens.accessToken;
 

@@ -366,7 +366,7 @@ function getVoiceContent(message: Message) {
 
 function getModeGreeting(agent: AgentMode) {
   if (agent === "cyber") {
-    return "Hi, I’m CyberMail. Connect your Google account to search and summarize Gmail, review your calendar, create email drafts, and propose calendar events. I’ll ask before creating drafts or events.";
+    return "Hi, I’m CyberMail. Connect Gmail from Tools to search and summarize email. Connect Google Calendar here to review events. I’ll ask before creating drafts or events.";
   }
   if (agent === "maps") {
     return "Hi, I’m CyberMaps. Ask me to find a place or get directions, for example “directions from Cape Town Station to Table Mountain by transit.” The live map will update alongside our chat.";
@@ -623,6 +623,18 @@ function isComposioPendingAction(value: unknown): value is ComposioPendingAction
         !Array.isArray(nested.arguments)
       );
     })
+  );
+}
+
+function isCyberPendingAction(value: unknown): value is CyberPendingAction {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const action = value as Record<string, unknown>;
+  return (
+    typeof action.id === "string" &&
+    (action.type === "gmail.create_draft" || action.type === "calendar.create_event") &&
+    typeof action.arguments === "object" &&
+    action.arguments !== null &&
+    !Array.isArray(action.arguments)
   );
 }
 
@@ -1011,8 +1023,8 @@ export default function ChatWindow() {
           setGoogleConnection(data as GoogleConnectionStatus);
           const params = new URLSearchParams(window.location.search);
           const googleResult = params.get("google");
-          if (googleResult === "connected") setGoogleConnectionNotice("Google account connected.");
-          if (googleResult === "error") setGoogleConnectionError("Google account connection did not complete. Try again.");
+          if (googleResult === "connected") setGoogleConnectionNotice("Google Calendar connected.");
+          if (googleResult === "error") setGoogleConnectionError("Google Calendar connection did not complete. Try again.");
           if (googleResult) {
             params.delete("google");
             params.delete("reason");
@@ -1757,7 +1769,11 @@ export default function ChatWindow() {
           role: "assistant",
           content: typeof data.reply === "string" ? data.reply : "CyberMail completed the request.",
           createdAt: Date.now(),
-          ...(data.pendingAction ? { pendingAction: data.pendingAction as CyberPendingAction } : {}),
+          ...(isComposioPendingAction(data.pendingAction)
+            ? { pendingAction: data.pendingAction }
+            : isCyberPendingAction(data.pendingAction)
+              ? { pendingAction: data.pendingAction }
+              : {}),
         };
         const nextMessages = [...updatedMessages, assistantMessage];
         if (activeHistoryIdRef.current === requestHistoryId) setMessages(nextMessages);
@@ -2160,7 +2176,7 @@ export default function ChatWindow() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not disconnect Google.");
       setGoogleConnection({ configured: true, connected: false, email: null });
-      setGoogleConnectionNotice("Google account disconnected.");
+      setGoogleConnectionNotice("Google Calendar disconnected.");
     } catch (error) {
       setGoogleConnectionError(getErrorMessage(error));
     } finally {
@@ -3364,59 +3380,69 @@ export default function ChatWindow() {
                       CyberMail
                     </h2>
                     <p className="mt-1 text-sm text-neutral-300">
-                      Search Gmail and review your calendar. Drafts and new events always wait for your confirmation.
+                      Search Gmail through Composio and review Google Calendar. Drafts and new events always wait for your confirmation.
                     </p>
                   </div>
-                  {googleConnection?.connected && hasSession ? (
+                  <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
-                      onClick={() => void disconnectGoogleAccount()}
-                      disabled={googleConnectionBusy}
-                      className="rounded-lg border border-neutral-700 px-3 py-2 text-sm text-neutral-200 hover:bg-neutral-800 disabled:opacity-50"
+                      onClick={openTools}
+                      disabled={!hasSession}
+                      className="rounded-lg border border-neutral-700 px-3 py-2 text-sm text-neutral-200 hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      {googleConnectionBusy ? "Disconnecting..." : "Disconnect"}
+                      Manage Gmail add-on
                     </button>
-                  ) : hasSession && googleConnection?.configured ? (
-                    <button
-                      type="button"
-                      onClick={() => void connectGoogleAccount()}
-                      disabled={googleConnectionBusy}
-                      className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-neutral-950 hover:bg-neutral-200 disabled:opacity-50"
-                    >
-                      {googleConnectionBusy ? "Connecting..." : "Connect Google"}
-                    </button>
-                  ) : !hasSession ? (
-                    <button
-                      type="button"
-                      onClick={() => loginWithRedirect()}
-                      className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-neutral-950 hover:bg-neutral-200"
-                    >
-                      Log in to connect
-                    </button>
-                  ) : googleConnection && !googleConnection.configured ? (
-                    <span className="rounded-lg border border-amber-500/30 px-3 py-2 text-xs text-amber-200">
-                      Setup required
-                    </span>
-                  ) : (
-                    <span className="flex items-center gap-2 px-2 py-2 text-sm text-neutral-400" role="status">
-                      <LoaderCircle size={15} className="animate-spin" aria-hidden="true" />
-                      Checking Google connection...
-                    </span>
-                  )}
+                    {googleConnection?.connected && hasSession ? (
+                      <button
+                        type="button"
+                        onClick={() => void disconnectGoogleAccount()}
+                        disabled={googleConnectionBusy}
+                        className="rounded-lg border border-neutral-700 px-3 py-2 text-sm text-neutral-200 hover:bg-neutral-800 disabled:opacity-50"
+                      >
+                        {googleConnectionBusy ? "Disconnecting..." : "Disconnect Calendar"}
+                      </button>
+                    ) : hasSession && googleConnection?.configured ? (
+                      <button
+                        type="button"
+                        onClick={() => void connectGoogleAccount()}
+                        disabled={googleConnectionBusy}
+                        className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-neutral-950 hover:bg-neutral-200 disabled:opacity-50"
+                      >
+                        {googleConnectionBusy ? "Connecting..." : "Connect Calendar"}
+                      </button>
+                    ) : !hasSession ? (
+                      <button
+                        type="button"
+                        onClick={() => loginWithRedirect()}
+                        className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-neutral-950 hover:bg-neutral-200"
+                      >
+                        Log in to connect
+                      </button>
+                    ) : googleConnection && !googleConnection.configured ? (
+                      <span className="rounded-lg border border-amber-500/30 px-3 py-2 text-xs text-amber-200">
+                        Calendar setup required
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-2 px-2 py-2 text-sm text-neutral-400" role="status">
+                        <LoaderCircle size={15} className="animate-spin" aria-hidden="true" />
+                        Checking Google connection...
+                      </span>
+                    )}
+                  </div>
                 </div>
                 {googleConnection?.connected && (
                   <div className="mt-3 flex items-center gap-2 text-sm text-emerald-300">
                     <Check size={16} aria-hidden="true" />
-                    Connected as {googleConnection.email}
+                    Calendar connected as {googleConnection.email}
                   </div>
                 )}
                 {!googleConnection?.configured && hasSession && googleConnection && (
                   <p className="mt-3 text-xs leading-5 text-neutral-400">
-                    Configure the server-side Google OAuth settings and enable Gmail, Gmail MCP, and Calendar APIs. See the setup notes in README.
+                    Configure the server-side Google OAuth settings and enable the Calendar API. Connect Gmail separately with the add-on manager.
                   </p>
                 )}
                 <div className="mt-3 flex flex-wrap gap-3 text-xs text-neutral-400">
-                  <span className="inline-flex items-center gap-1.5"><Mail size={13} aria-hidden="true" /> Gmail read & draft</span>
+                  <span className="inline-flex items-center gap-1.5"><Mail size={13} aria-hidden="true" /> Gmail via Composio</span>
                   <span className="inline-flex items-center gap-1.5"><CalendarDays size={13} aria-hidden="true" /> Calendar read & create</span>
                 </div>
                 {googleConnectionError && <p className="mt-3 text-sm text-rose-300" role="alert">{googleConnectionError}</p>}

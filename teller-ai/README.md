@@ -41,7 +41,7 @@ Teller AI can use Parallel's remote MCP server for web search, page fetch, web r
 
 ## App integrations
 
-The **Tools** page in chat lists Composio app connectors and lets signed-in users connect their own accounts. Set the server-only `COMPOSIO_API_KEY` to a Composio project API key with session management and session tool execution enabled. Add the deployed `/chat` URL as an allowed Composio connection callback. Teller creates an MCP-enabled Composio session for the authenticated user when browsing or connecting apps; connection status is scoped to that user. When Composio is available, the first pass uses `NVIDIA_COMPOSIO_DISCOVERY_MODEL` (defaulting to `NVIDIA_CLASSIFIER_MODEL`) to discover connector tools; the resulting schemas and search results are handed to `NVIDIA_CHAT_MODEL`, which routes selected actions through `COMPOSIO_MULTI_EXECUTE_TOOL`. A prompt can combine connected-app and Parallel web research tasks. Before any batch containing an app action not explicitly marked read-only, Teller shows the requested operations and waits for explicit confirmation. The MCP URL and headers stay on the server and are not exposed to the browser.
+The **Tools** page in chat lists Composio app connectors and lets signed-in users connect their own accounts. Set the server-only `COMPOSIO_API_KEY` to a Composio project API key with session management and session tool execution enabled. Add the deployed `/chat` URL as an allowed Composio connection callback. Teller creates an MCP-enabled Composio session for the authenticated user when browsing or connecting apps; connection status is scoped to that user. Regular chat routes connected-app actions through Composio; CyberMail uses it specifically for Gmail and keeps Google Calendar on Google OAuth. The first pass uses `NVIDIA_COMPOSIO_DISCOVERY_MODEL` (defaulting to `NVIDIA_CLASSIFIER_MODEL`) to discover connector tools; results and schemas are handed to `NVIDIA_CHAT_MODEL`, which routes selected actions through `COMPOSIO_MULTI_EXECUTE_TOOL`. Before any batch containing an app action not explicitly marked read-only, Teller shows the requested operations and waits for explicit confirmation. The MCP URL and headers stay on the server and are not exposed to the browser.
 
 Daily image-generation limits are 5 for Free, 25 for Pro, and 30 for Business plans. Limits reset at midnight UTC. When the daily limit is reached, the chat reports that image generation is unavailable until tomorrow.
 
@@ -53,15 +53,12 @@ This project uses [`next/font`](https://nextjs.org/docs/app/building-your-applic
 
 ## CyberMail: Gmail and Calendar
 
-Choose CyberMail from the Mode menu in the chat prompt to use Google's remote Gmail MCP server for supported Gmail searches, thread reads, and draft creation, and the Google Calendar API for listing and creating primary-calendar events. It never sends email. Creating a Gmail draft or Calendar event requires an explicit confirmation in the chat. Each mode has a separate chat history; switching modes resumes the latest chat in that mode or starts one if none exists.
+Choose CyberMail from the Mode menu to use the Composio Gmail add-on for Gmail searches, thread reads, and draft creation, and the Google Calendar API for listing and creating primary-calendar events. Connect Gmail from the chat's **Tools** page; Google Calendar is connected separately through CyberMail or Account Settings. CyberMail never sends email. Creating a Gmail draft or Calendar event requires an explicit confirmation in the chat. Each mode has a separate chat history; switching modes resumes the latest chat in that mode or starts one if none exists.
 
 To enable the Google connection:
 
-1. In Google Cloud, enable the Gmail API, Gmail MCP API, and Google Calendar API for the project.
-2. Configure the OAuth consent screen. Add these scopes to the app's Data Access settings:
-   - `https://www.googleapis.com/auth/gmail.readonly`
-   - `https://www.googleapis.com/auth/gmail.compose`
-   - `https://www.googleapis.com/auth/calendar.events`
+1. In Google Cloud, enable the Google Calendar API for the project.
+2. Configure the OAuth consent screen. Add `https://www.googleapis.com/auth/calendar.events` to the app's Data Access settings.
 3. Create a **Web application** OAuth client. Add the exact deployed callback URL (for local development, `http://localhost:3000/api/google/callback`) as an authorized redirect URI.
 4. Set these server-only environment variables from `.env.example`:
    - `CYBERMAIL_DATABASE_URL` — optional dedicated Postgres connection string for CyberMail's Google OAuth tokens, OAuth states, and pending actions. If omitted, these use `DATABASE_URL`.
@@ -69,14 +66,13 @@ To enable the Google connection:
    - `GOOGLE_OAUTH_CLIENT_SECRET`
    - `GOOGLE_OAUTH_REDIRECT_URI`
    - `GOOGLE_TOKEN_ENCRYPTION_KEY` — a base64-encoded 32-byte key; for example, generate one with `openssl rand -base64 32`.
-   - `GMAIL_MCP_SERVER_URL` is optional and defaults to `https://gmailmcp.googleapis.com/mcp/v1`.
 5. Ensure `DATABASE_URL` and, if using a separate CyberMail database, `CYBERMAIL_DATABASE_URL` are configured. OAuth tokens are encrypted before being stored in Postgres. If you switch to a new CyberMail database, reconnect the Google account there. Do not put database credentials or Google credentials in `NEXT_PUBLIC_*` variables or commit them.
 
-After the server is configured, sign in to Teller, open **Account Settings**, and choose **Connect Google**. Users can connect or disconnect their own Google account there. The standalone `gmail_teller.py` script and its `credentials.json` file are not used by the Next.js app; CyberMail uses the Web application OAuth client configured with the server-side environment variables above.
+After the server is configured, sign in to Teller and connect Google Calendar from CyberMail or Account Settings. To use Gmail, open the chat's **Tools** page and install/connect the Gmail add-on. The standalone `gmail_teller.py` script and its `credentials.json` file are not used by the Next.js app.
 
-Google may require OAuth app verification before external users can grant sensitive Gmail and Calendar scopes. While the consent screen is in testing mode, add the intended accounts as test users.
+Google may require OAuth app verification before external users can grant the Calendar scope. While the consent screen is in testing mode, add the intended accounts as test users.
 
-CyberMail treats retrieved email and calendar content as untrusted input. Users should still review draft/event details before confirming. For Google's Gmail MCP setup and security guidance, see [Configure the Gmail MCP server](https://developers.google.com/workspace/gmail/api/guides/configure-mcp-server).
+CyberMail treats retrieved email and calendar content as untrusted input. Users should still review draft/event details before confirming.
 
 ## CyberMaps: interactive maps and directions
 

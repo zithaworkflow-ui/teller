@@ -716,12 +716,12 @@ export default function AccountSettingsPage() {
           <section className="rounded-xl border border-neutral-800 bg-neutral-950 p-5">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
-                <h2 className="text-lg font-semibold">CyberMail Google account</h2>
+                <h2 className="text-lg font-semibold">CyberMail Google Calendar account</h2>
                 <p className="mt-2 max-w-2xl text-sm text-neutral-400">
-                  Connect Gmail and Google Calendar to search messages, review your calendar, create drafts, and add events. Drafts and events require your confirmation; CyberMail does not send email.
+                  Connect Google Calendar here to review events and create confirmed events. Connect Gmail separately from the chat Tools page; CyberMail creates drafts only after your confirmation and never sends email.
                 </p>
                 <div className="mt-3 flex flex-wrap gap-3 text-xs text-neutral-400">
-                  <span className="inline-flex items-center gap-1.5"><Mail size={14} aria-hidden="true" /> Gmail</span>
+                  <span className="inline-flex items-center gap-1.5"><Mail size={14} aria-hidden="true" /> Gmail via Composio in Tools</span>
                   <span className="inline-flex items-center gap-1.5"><CalendarDays size={14} aria-hidden="true" /> Google Calendar</span>
                 </div>
               </div>
@@ -738,7 +738,7 @@ export default function AccountSettingsPage() {
                     disabled={isGoogleConnectionBusy}
                     className="rounded-lg border border-neutral-700 px-3 py-2 text-sm text-neutral-200 hover:bg-neutral-800 disabled:opacity-50"
                   >
-                    {isGoogleConnectionBusy ? "Disconnecting..." : "Disconnect Google"}
+                    {isGoogleConnectionBusy ? "Disconnecting..." : "Disconnect Calendar"}
                   </button>
                 ) : googleConnection?.configured ? (
                   <button
@@ -747,7 +747,7 @@ export default function AccountSettingsPage() {
                     disabled={isGoogleConnectionBusy}
                     className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-neutral-950 hover:bg-neutral-200 disabled:opacity-50"
                   >
-                    {isGoogleConnectionBusy ? "Connecting..." : "Connect Google"}
+                    {isGoogleConnectionBusy ? "Connecting..." : "Connect Calendar"}
                   </button>
                 ) : (
                   <span className="rounded-lg border border-amber-500/30 px-3 py-2 text-xs text-amber-200">
@@ -767,7 +767,7 @@ export default function AccountSettingsPage() {
             {googleConnection?.connected && (
               <p className="mt-3 inline-flex items-center gap-2 text-sm text-emerald-300">
                 <Check size={16} aria-hidden="true" />
-                Connected as {googleConnection.email}
+                Calendar connected as {googleConnection.email}
               </p>
             )}
             {isAuthenticated && googleConnection && !googleConnection.configured && (
