@@ -765,6 +765,8 @@ export default function ChatWindow() {
   const [generatedImagesError, setGeneratedImagesError] = useState("");
   const generatedImageUrlsRef = useRef(new Set<string>());
   const generatedImageOffsetRef = useRef(0);
+  const generatedImageLoadingRef = useRef(false);
+  const generatedImageRetryResetRef = useRef(true);
   const [pendingFile, setPendingFile] = useState<Message["file"] | null>(null);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>("auto");
@@ -1291,17 +1293,11 @@ export default function ChatWindow() {
   }
 
   async function loadGeneratedImages(reset = false) {
-    if (!hasSession || isGeneratedImagesLoading) return;
+    if (!hasSession || generatedImageLoadingRef.current) return;
+    generatedImageLoadingRef.current = true;
+    generatedImageRetryResetRef.current = reset;
     setIsGeneratedImagesLoading(true);
     setGeneratedImagesError("");
-
-    if (reset) {
-      generatedImageUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
-      generatedImageUrlsRef.current.clear();
-      generatedImageOffsetRef.current = 0;
-      setGeneratedImages([]);
-      setGeneratedImagesHasMore(false);
-    }
 
     try {
       const token = await getAccessTokenSilently();
@@ -1312,9 +1308,8 @@ export default function ChatWindow() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not load generated images.");
       if (!Array.isArray(data.images)) throw new Error("The image history response was invalid.");
-      generatedImageOffsetRef.current = offset + data.images.length;
 
-      const results = await Promise.allSettled(
+      const imagesWithBlobs = await Promise.all(
         data.images.map(async (image: { id: string; historyId: string; createdAt: string }) => {
           const imageResponse = await fetch(`/api/account/images/${encodeURIComponent(image.id)}`, {
             headers: { Authorization: `Bearer ${token}` },
@@ -1322,22 +1317,34 @@ export default function ChatWindow() {
           if (!imageResponse.ok) {
             throw new Error(`Could not load image ${image.id}.`);
           }
-          const imageUrl = URL.createObjectURL(await imageResponse.blob());
-          generatedImageUrlsRef.current.add(imageUrl);
-          return { ...image, imageUrl } satisfies GeneratedImage;
+          return { ...image, blob: await imageResponse.blob() };
         }),
       );
-      const loadedImages = results.flatMap((result) => (
-        result.status === "fulfilled" ? [result.value] : []
-      ));
-      setGeneratedImages((previous) => reset ? loadedImages : [...previous, ...loadedImages]);
-      setGeneratedImagesHasMore(data.hasMore === true);
-      if (loadedImages.length < data.images.length) {
-        setGeneratedImagesError("Some images could not be loaded. Try again later.");
+      const loadedImages = imagesWithBlobs.map(({ blob, ...image }) => {
+        const imageUrl = URL.createObjectURL(blob);
+        generatedImageUrlsRef.current.add(imageUrl);
+        return { ...image, imageUrl } satisfies GeneratedImage;
+      });
+
+      if (reset) {
+        const retainedUrls = new Set(loadedImages.map((image) => image.imageUrl));
+        generatedImageUrlsRef.current.forEach((url) => {
+          if (!retainedUrls.has(url)) {
+            URL.revokeObjectURL(url);
+            generatedImageUrlsRef.current.delete(url);
+          }
+        });
+        setGeneratedImages(loadedImages);
+      } else {
+        setGeneratedImages((previous) => [...previous, ...loadedImages]);
       }
+      generatedImageOffsetRef.current = offset + data.images.length;
+      setGeneratedImagesHasMore(data.hasMore === true);
+      generatedImageRetryResetRef.current = false;
     } catch (error) {
       setGeneratedImagesError(getErrorMessage(error));
     } finally {
+      generatedImageLoadingRef.current = false;
       setIsGeneratedImagesLoading(false);
     }
   }
@@ -2937,6 +2944,16 @@ export default function ChatWindow() {
                       Log in
                     </button>
                   )}
+                  {hasSession && (
+                    <button
+                      type="button"
+                      onClick={() => void loadGeneratedImages(generatedImageRetryResetRef.current)}
+                      disabled={isGeneratedImagesLoading}
+                      className="rounded-md border border-rose-300/30 px-3 py-1.5 font-medium text-rose-100 transition hover:bg-rose-900/40 disabled:opacity-50"
+                    >
+                      {isGeneratedImagesLoading ? "Loading..." : "Retry"}
+                    </button>
+                  )}
                 </div>
               )}
 
@@ -3636,7 +3653,7 @@ export default function ChatWindow() {
                   type="button"
                   onClick={() => loading ? stopActiveRequest() : void sendMessage()}
                   disabled={!loading && (isTranscribing || (!input.trim() && !pendingFile))}
-                  className={`order-6 flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-colors disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400 ${loading ? "bg-rose-500 text-white hover:bg-rose-400" : "bg-white text-neutral-950 hover:bg-neutral-200"}`}
+                  className={`order-6 flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-colors disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400 ${loading ? "bg-neutral-700 text-neutral-100 hover:bg-neutral-600" : "bg-white text-neutral-950 hover:bg-neutral-200"}`}
                   aria-label={loading ? (isGeneratingImage ? "Stop image generation" : "Stop response") : "Send message"}
                   title={loading ? (isGeneratingImage ? "Stop image generation" : "Stop response") : "Send message"}
                 >

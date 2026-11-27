@@ -232,7 +232,7 @@ export async function listComposioToolkits(userId: string) {
   let pageCount = 0;
 
   do {
-    const query = new URLSearchParams({ limit: "100" });
+    const query = new URLSearchParams({ limit: "50" });
     if (cursor) query.set("cursor", cursor);
     const payload = await composioRequest(
       `/session/${encodeURIComponent(sessionId)}/toolkits?${query.toString()}`,

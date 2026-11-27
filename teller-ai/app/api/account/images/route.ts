@@ -4,7 +4,7 @@ import { getUserGeneratedImages } from "@/lib/postgres";
 
 export const runtime = "nodejs";
 
-const PAGE_SIZE = 12;
+const PAGE_SIZE = 8;
 
 export async function GET(request: Request) {
   const userId = await getAuthenticatedUserId(request);
