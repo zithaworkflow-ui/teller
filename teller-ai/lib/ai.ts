@@ -183,6 +183,7 @@ export async function callTellerAIWithTools(
     compactPrompt?: boolean;
     systemPrompt?: string;
     userMemory?: string[];
+    model?: string;
     thinkMode?: boolean;
     signal?: AbortSignal;
   },

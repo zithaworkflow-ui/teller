@@ -129,6 +129,53 @@ const INTEGRATION_CATEGORIES = [
 
 type IntegrationCategory = (typeof INTEGRATION_CATEGORIES)[number] | "Other";
 
+const INTEGRATION_FAVICON_DOMAINS: Record<string, string> = {
+  gmail: "gmail.com",
+  googlegmail: "gmail.com",
+  googledrive: "drive.google.com",
+  googlecalendar: "calendar.google.com",
+  googledocs: "docs.google.com",
+  googlesheets: "sheets.google.com",
+  notion: "notion.so",
+  slack: "slack.com",
+  github: "github.com",
+  gitlab: "gitlab.com",
+  dropbox: "dropbox.com",
+  microsoftteams: "teams.microsoft.com",
+  outlook: "outlook.com",
+  microsoftoutlook: "outlook.com",
+  onedrive: "onedrive.live.com",
+  trello: "trello.com",
+  asana: "asana.com",
+  airtable: "airtable.com",
+  linear: "linear.app",
+  jira: "atlassian.com",
+  figma: "figma.com",
+  canva: "canva.com",
+  zoom: "zoom.us",
+  hubspot: "hubspot.com",
+  salesforce: "salesforce.com",
+  stripe: "stripe.com",
+  paypal: "paypal.com",
+  spotify: "spotify.com",
+  youtube: "youtube.com",
+  mailchimp: "mailchimp.com",
+  intercom: "intercom.com",
+  zendesk: "zendesk.com",
+  shopify: "shopify.com",
+};
+
+function getIntegrationLogoUrl(toolkit: IntegrationToolkit) {
+  if (toolkit.logo) return toolkit.logo;
+
+  const slug = toolkit.slug.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const name = toolkit.name.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const domain = INTEGRATION_FAVICON_DOMAINS[slug] ??
+    INTEGRATION_FAVICON_DOMAINS[name] ??
+    `${slug || name || "app"}.com`;
+  return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=128`;
+}
+
 const CATEGORY_KEYWORDS: Record<Exclude<IntegrationCategory, "Other">, string[]> = {
   "Productivity & Workflow": [
     "google drive", "gdrive", "gmail", "google calendar", "googlecalendar", "gcal",
@@ -3019,11 +3066,14 @@ export default function ChatWindow() {
                               className="flex w-64 shrink-0 items-center gap-3 rounded-2xl border border-emerald-900/60 bg-neutral-900 p-3"
                             >
                               <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-neutral-700 bg-neutral-800">
-                                {toolkit.logo ? (
-                                  <Image src={toolkit.logo} alt="" width={48} height={48} unoptimized className="h-full w-full object-contain" />
-                                ) : (
-                                  <Wrench size={20} className="text-neutral-300" aria-hidden="true" />
-                                )}
+                                <Image
+                                  src={getIntegrationLogoUrl(toolkit)}
+                                  alt=""
+                                  width={48}
+                                  height={48}
+                                  unoptimized
+                                  className="h-full w-full object-contain"
+                                />
                               </span>
                               <div className="min-w-0 flex-1">
                                 <h3 className="truncate text-sm font-semibold text-white">{toolkit.name}</h3>
@@ -3087,18 +3137,14 @@ export default function ChatWindow() {
                                 <article key={toolkit.slug} className="flex min-h-44 flex-col rounded-2xl border border-neutral-800 bg-neutral-900 p-4">
                                   <div className="flex items-start gap-3">
                                     <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-neutral-700 bg-neutral-800">
-                                      {toolkit.logo ? (
-                                        <Image
-                                          src={toolkit.logo}
-                                          alt=""
-                                          width={40}
-                                          height={40}
-                                          unoptimized
-                                          className="h-full w-full object-contain"
-                                        />
-                                      ) : (
-                                        <Wrench size={18} className="text-neutral-300" aria-hidden="true" />
-                                      )}
+                                      <Image
+                                        src={getIntegrationLogoUrl(toolkit)}
+                                        alt=""
+                                        width={40}
+                                        height={40}
+                                        unoptimized
+                                        className="h-full w-full object-contain"
+                                      />
                                     </span>
                                     <div className="min-w-0 flex-1">
                                       <h3 className="truncate font-semibold text-white">{toolkit.name}</h3>

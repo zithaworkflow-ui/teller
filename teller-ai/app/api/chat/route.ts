@@ -7,6 +7,7 @@ import {
   type TellerToolCall,
 } from "@/lib/ai";
 import { hasNvidiaChatProvider } from "@/lib/nvidia-chat";
+import { getNvidiaComposioDiscoveryModel } from "@/lib/nvidia-ai";
 import { analyzeImageWithNvidia } from "@/lib/nvidia-image";
 import { getAuthenticatedUserId } from "@/lib/auth0-auth";
 import {
@@ -286,16 +287,21 @@ async function runParallelResearch(
   const discoveredComposioTools = new Set<string>();
   const discoveredComposioToolkits = new Set<string>();
   const activeComposioSkills = new Map<string, string>();
+  const composioOpenAITools = composioTools.map((tool) => ({
+    type: "function",
+    function: {
+      name: tool.slug,
+      description: tool.description,
+      parameters: tool.inputParameters,
+    },
+  }));
+  const composioDiscoveryTools = composioOpenAITools.filter((tool) => (
+    tool.function.name === "COMPOSIO_SEARCH_TOOLS"
+  ));
+  const maxTurns = composioDiscoveryTools.length > 0 ? 6 : 5;
   const tools = [
     ...parallelTools,
-    ...composioTools.map((tool) => ({
-      type: "function",
-      function: {
-        name: tool.slug,
-        description: tool.description,
-        parameters: tool.inputParameters,
-      },
-    })),
+    ...composioOpenAITools,
   ];
   const toolMessages = messages;
   const researchSites = new Set<string>();
@@ -313,22 +319,30 @@ async function runParallelResearch(
     if (researchSites.size > 0) onSites([...researchSites]);
   };
 
-  for (let turn = 0; turn < 5; turn += 1) {
+  for (let turn = 0; turn < maxTurns; turn += 1) {
     signal.throwIfAborted();
+    const isComposioDiscoveryTurn = turn === 0 && composioDiscoveryTools.length > 0;
+    const availableTools = isComposioDiscoveryTurn ? composioDiscoveryTools : tools;
     let assistant: { content?: string | null; tool_calls?: TellerToolCall[] } | null = null;
     let maxTokens: number | undefined = thinkMode ? thinkOutputTokenLimit : undefined;
     let compactPrompt = false;
     for (let attempt = 0; attempt < 4; attempt += 1) {
       try {
-        assistant = await callTellerAIWithTools(toolMessages, tools, {
+        assistant = await callTellerAIWithTools(toolMessages, availableTools, {
           country,
           userName,
           userMemory,
+          ...(isComposioDiscoveryTurn
+            ? { model: getNvidiaComposioDiscoveryModel() }
+            : {}),
           maxTokens,
           compactPrompt,
           thinkMode,
           signal,
           systemPrompt: [
+            ...(isComposioDiscoveryTurn
+              ? ["This is the Composio discovery pass. Use COMPOSIO_SEARCH_TOOLS to find exact connected-app actions requested by the user. Do not execute actions or write the final response; the NVIDIA chat model will continue after receiving your discovery results."]
+              : []),
             "Treat the user's message as possibly containing several independent intents. Identify and complete every relevant part using the available Composio app tools and Parallel research tools; do not stop after handling only one part.",
             ...(generatedImageHandled
               ? ["The app has already generated the requested image. Do not generate or edit another image; complete the other parts of the user's request."]
@@ -337,7 +351,9 @@ async function runParallelResearch(
             "Use web_decisions only when the user asks for it, a probability, a choice among options, or a score.",
             "Use image_search when the user asks to find, search for, or browse existing images from the web. Do not use it to create or edit images; those use the app's separate image-generation workflow.",
             composioSessionId
-              ? "For connected-app tasks, call COMPOSIO_SEARCH_TOOLS first with atomic queries for every app task, then use its exact returned tool slugs and schemas. Reuse its session identifier for schemas, connection management, and execution. If a toolkit is not connected, use COMPOSIO_MANAGE_CONNECTIONS and show its authorization link; do not claim the requested app task is complete until execution succeeds."
+              ? discoveredComposioTools.size > 0
+                ? "Treat user references to add-ons, apps, integrations, connectors, or skills as connected-app tasks. Continue using the tools and schemas discovered in the Composio handoff. Search again only if another requested app task is not covered. Reuse the returned session identifier. If a toolkit is not connected, use COMPOSIO_MANAGE_CONNECTIONS and show its authorization link; do not claim the requested app task is complete until execution succeeds."
+                : "Treat user references to add-ons, apps, integrations, connectors, or skills as connected-app tasks. Use Composio for them: call COMPOSIO_SEARCH_TOOLS first with atomic queries for every requested app task, then use its exact returned tool slugs and schemas. Reuse its session identifier for schemas, connection management, and execution. If a toolkit is not connected, use COMPOSIO_MANAGE_CONNECTIONS and show its authorization link; do not claim the requested app task is complete until execution succeeds."
               : "Connected-app tools are unavailable until the user signs in and Composio is configured. Do not claim to have completed app actions.",
             activeComposioSkills.size > 0
               ? [
@@ -373,6 +389,7 @@ async function runParallelResearch(
 
     const toolCalls = assistant.tool_calls || [];
     if (!toolCalls.length) {
+      if (isComposioDiscoveryTurn) continue;
       reply = assistant.content || "Sorry, I could not generate a response.";
       completed = true;
       break;

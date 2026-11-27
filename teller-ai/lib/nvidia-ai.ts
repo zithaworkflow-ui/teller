@@ -24,3 +24,9 @@ export function getNvidiaChatConfig() {
     model: process.env.NVIDIA_CHAT_MODEL?.trim() || NVIDIA_DEFAULT_CHAT_MODEL,
   };
 }
+
+export function getNvidiaComposioDiscoveryModel() {
+  return process.env.NVIDIA_COMPOSIO_DISCOVERY_MODEL?.trim() ||
+    process.env.NVIDIA_CLASSIFIER_MODEL?.trim() ||
+    NVIDIA_KIMI_K3_1_PRO_MODEL;
+}
