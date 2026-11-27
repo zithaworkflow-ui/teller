@@ -43,7 +43,7 @@ Teller AI can use Parallel's remote MCP server for web search, page fetch, web r
 
 The **Tools** page in chat lists Composio app connectors and lets signed-in users connect their own accounts. Set the server-only `COMPOSIO_API_KEY` to a Composio project API key with session management and session tool execution enabled. Add the deployed `/chat` URL as an allowed Composio connection callback. Teller creates an MCP-enabled Composio session for the authenticated user when browsing or connecting apps; connection status is scoped to that user. Regular chat routes connected-app actions through Composio; CyberMail uses it specifically for Gmail and keeps Google Calendar on Google OAuth. The first pass uses `NVIDIA_COMPOSIO_DISCOVERY_MODEL` (defaulting to `NVIDIA_CLASSIFIER_MODEL`) to discover connector tools; results and schemas are handed to `NVIDIA_CHAT_MODEL`, which routes selected actions through `COMPOSIO_MULTI_EXECUTE_TOOL`. For document and file requests, Grope checks the matching actions in the user's Tools-page connector catalog before claiming it cannot create or export formats such as DOCX or PDF; it confirms file creation only when a tool reports success. Before any batch containing an app action not explicitly marked read-only, Teller shows the requested operations and waits for explicit confirmation. The MCP URL and headers stay on the server and are not exposed to the browser.
 
-The main Grope chat is a productivity orchestrator: it can combine Parallel research with the signed-in user's discovered Composio connectors, use results to guide later steps, and report completed work separately from actions waiting for confirmation.
+The main Grope chat is a productivity orchestrator: it can combine Parallel research with the signed-in user's discovered Composio connectors, use results to guide later steps, and report completed work separately from actions waiting for confirmation. Signed-out users can still use public Parallel research, but do not have personal app connectors or account-scoped document/file actions; Grope offers to draft document content in chat instead.
 
 Daily image-generation limits are 5 for Free, 25 for Pro, and 30 for Business plans. Limits reset at midnight UTC. When the daily limit is reached, the chat reports that image generation is unavailable until tomorrow.
 
@@ -78,7 +78,7 @@ CyberMail treats retrieved email and calendar content as untrusted input. Users 
 
 ## CyberMaps: interactive maps and directions
 
-Choose CyberMaps from the Mode menu in the chat prompt. Ask it to show a place or give directions, such as “directions from Cape Town Station to Table Mountain by transit.” The app embeds an interactive Google Maps search or directions map and stores the latest map request with the CyberMaps chat.
+Choose CyberMaps from the Mode menu in the chat prompt. Connect the Google Maps add-on from the chat **Tools** page to let CyberMaps discover and call Google Maps actions through Composio for place and directions requests, such as “directions from Cape Town Station to Table Mountain by transit.” The NVIDIA chat model uses the discovered Google Maps action and its results; it does not invent route details. The app also embeds an interactive Google Maps search or directions map and stores the latest map request with the CyberMaps chat.
 
 To enable the embedded map:
 
@@ -86,7 +86,7 @@ To enable the embedded map:
 2. Create an API key and restrict it to the Maps Embed API and your app's HTTP referrers.
 3. Set `NEXT_PUBLIC_GOOGLE_MAPS_EMBED_API_KEY` in `.env.local`. This key is intentionally visible in the browser for the embed request, so restrict it in Google Cloud; do not use an unrestricted key.
 
-Without the key, CyberMaps still provides a link to open the requested search or route in Google Maps. The embedded map provides current interactive Google Maps content; the chat assistant does not claim live traffic or route estimates.
+Without the key, CyberMaps still provides a link to open the requested search or route in Google Maps. The embedded map works independently of the Composio connector; connecting Google Maps in Tools enables the assistant's Google Maps lookups. The chat assistant does not claim live traffic or route estimates unless returned by an available tool.
 
 ## Learn More
 

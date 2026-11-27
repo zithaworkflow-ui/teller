@@ -2899,7 +2899,7 @@ export default function ChatWindow() {
                 <>
                   {activeAgent === "cyber" ? (
                     <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-500/15 text-violet-200">
-                      <Sparkles size={18} aria-hidden="true" />
+                      <Mail size={18} aria-hidden="true" />
                     </span>
                   ) : (
                     <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-500/15 text-sky-200">
@@ -3327,6 +3327,15 @@ export default function ChatWindow() {
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={openTools}
+                      disabled={!hasSession}
+                      className="rounded-lg border border-neutral-700 px-3 py-2 text-xs text-neutral-200 transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50"
+                      title={hasSession ? "Connect Google Maps from Tools" : "Sign in to manage app connectors"}
+                    >
+                      Manage Maps add-on
+                    </button>
                     {activeMapQuery && (
                       <a
                         href={getGoogleMapsLink(activeMapQuery)}
@@ -3354,8 +3363,8 @@ export default function ChatWindow() {
                     <MapPinned size={34} className="text-sky-300" aria-hidden="true" />
                     <p className="max-w-xl text-sm text-neutral-300">
                       {activeMapQuery
-                        ? "Add NEXT_PUBLIC_GOOGLE_MAPS_EMBED_API_KEY to .env.local and enable the Maps Embed API in Google Cloud to show the live map here."
-                        : "Try “directions from Cape Town Station to Table Mountain” or search for a place."}
+                        ? "Add NEXT_PUBLIC_GOOGLE_MAPS_EMBED_API_KEY to .env.local and enable the Maps Embed API in Google Cloud to show the live map here. Connect the Google Maps add-on from Tools to let CyberMaps look up places and directions."
+                        : "Try “directions from Cape Town Station to Table Mountain” or search for a place. Connect Google Maps from Tools to enable map lookups in chat."}
                     </p>
                     {activeMapQuery && (
                       <a
@@ -3376,7 +3385,7 @@ export default function ChatWindow() {
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <h2 className="flex items-center gap-2 font-semibold text-white">
-                      <Sparkles size={17} className="text-violet-300" aria-hidden="true" />
+                      <Mail size={17} className="text-violet-300" aria-hidden="true" />
                       CyberMail
                     </h2>
                     <p className="mt-1 text-sm text-neutral-300">

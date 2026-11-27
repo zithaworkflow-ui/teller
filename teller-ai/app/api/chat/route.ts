@@ -268,6 +268,7 @@ function extractParallelImageResults(value: unknown): ParallelImageSearchResult[
 async function runParallelResearch(
   messages: ParallelChatMessage[],
   userId: string | null,
+  isMapsAgent: boolean,
   generatedImageHandled: boolean,
   thinkMode: boolean,
   thinkOutputTokenLimit: number,
@@ -343,7 +344,17 @@ async function runParallelResearch(
           signal,
           systemPrompt: [
             ...(isComposioDiscoveryTurn
-              ? ["This is the Composio discovery pass. Use COMPOSIO_SEARCH_TOOLS to find exact connected-app actions requested by the user. For requests to create, compile, convert, or export documents or files (including DOCX, PDF, spreadsheets, and presentations), search for matching actions in the user's current Tools-page app catalog before concluding a file cannot be produced. Do not execute actions or write the final response; the NVIDIA chat model will continue after receiving your discovery results."]
+              ? [
+                  isMapsAgent
+                    ? "This is the Composio discovery pass for CyberMaps. Use COMPOSIO_SEARCH_TOOLS to discover Google Maps actions from the user's Tools-page connectors for the requested place, address, directions, or route. Do not execute actions or write the final response; the NVIDIA chat model will continue after receiving your discovery results."
+                    : "This is the Composio discovery pass. Use COMPOSIO_SEARCH_TOOLS to find exact connected-app actions requested by the user. For requests to create, compile, convert, or export documents or files (including DOCX, PDF, spreadsheets, and presentations), search for matching actions in the user's current Tools-page app catalog before concluding a file cannot be produced. Do not execute actions or write the final response; the NVIDIA chat model will continue after receiving your discovery results.",
+                ]
+              : []),
+            ...(isMapsAgent
+              ? [
+                  "You are CyberMaps. For place lookup, address details, and directions, use discovered Google Maps Composio actions first and ground your answer in their results. Do not invent places, route details, travel times, traffic, or closures. If Google Maps actions are not available, say so plainly and direct the user to the interactive Google Maps panel or its open-in-Maps link; do not imply you queried Google Maps.",
+                  "If the user’s Google Maps connector is not connected, use COMPOSIO_MANAGE_CONNECTIONS when available and explain that they can authorize Google Maps from the chat Tools page. The embedded Google Maps panel remains available independently of the Composio connector.",
+                ]
               : []),
             "Treat the user's message as possibly containing several independent intents. Identify and complete every relevant part using the available Composio app tools and Parallel research tools; do not stop after handling only one part.",
             "Act as a productivity assistant: discover and use the exact tools needed to achieve the user's requested outcomes, use results to drive dependent actions, and verify each claimed result. Avoid unnecessary calls, but do not answer with instructions for the user when an available tool can perform the task.",
@@ -362,6 +373,11 @@ async function runParallelResearch(
                   "Do not claim you cannot access or summarize private Gmail or other connected-app data merely because it is private. Use only data returned by this authorized Composio session. If the requested app is not connected, use COMPOSIO_MANAGE_CONNECTIONS and explain that authorization is required. Do not ask the user to paste private messages solely because they are private, and never claim an action or summary is complete without successful tool results.",
                 ].join(" ")
               : "Connected-app tools are unavailable until the user signs in and Composio is configured. Be transparent that the connector must be configured or authorized before you can access app data; do not claim to have completed app actions or ask the user to paste private messages solely because they are private.",
+            !userId
+              ? "The user is signed out. Public Parallel tools supplied to this conversation remain available for web research, but there are no personal Composio connectors or account-scoped document/file tools. Do not claim to access private apps or create, save, export, or attach downloadable documents/files. For document requests, offer to draft the content in chat and explain that sign-in and a suitable connected app are required for file actions. Do not say that all tools are unavailable, because public research is available."
+              : !composioSessionId
+                ? "No authenticated Composio tools are available in this request. Use the supplied public Parallel tools for research, but do not claim connected-app or account-scoped document/file actions are available."
+                : "",
             discoveredComposioToolkits.size > 0
               ? [
                   "Toolkits discovered from the user's current Tools-page app catalog:",
@@ -604,6 +620,7 @@ function getChatStreamErrorMessage(error: unknown) {
 function createResearchResponse(
   messages: ParallelChatMessage[],
   userId: string | null,
+  isMapsAgent: boolean,
   generatedImageHandled: boolean,
   thinkMode: boolean,
   thinkOutputTokenLimit: number,
@@ -625,6 +642,7 @@ function createResearchResponse(
         const result = await runParallelResearch(
           messages,
           userId,
+          isMapsAgent,
           generatedImageHandled,
           thinkMode,
           thinkOutputTokenLimit,
@@ -859,45 +877,22 @@ export async function POST(req: Request) {
         );
       }
     } else if (isMapsAgent) {
-      let maxTokens: number | undefined = thinkMode ? thinkOutputTokenLimit : undefined;
-      let compactPrompt = false;
-      for (let attempt = 0; attempt < 4; attempt += 1) {
-        try {
-          reply = await callTellerAI(messages, {
-            country,
-            userName,
-            userMemory,
-            maxTokens,
-            compactPrompt,
-            thinkMode,
-            signal: req.signal,
-            ...(isMapsAgent
-              ? {
-                  systemPrompt: thinkMode
-                    ? "You are CyberMaps, a helpful directional assistant. Give a clear, detailed answer when useful, but rely on the interactive Google map shown in the app for routes and current map information. Do not invent turn-by-turn directions, travel times, traffic conditions, or closures. Invite the user to open the map for current route details."
-                    : "You are CyberMaps, a concise directional assistant. Help clarify locations and travel modes, but rely on the interactive Google map shown in the app for routes and current map information. Do not invent turn-by-turn directions, travel times, traffic conditions, or closures. Invite the user to open the map for current route details.",
-                }
-              : {}),
-          });
-          break;
-        } catch (error) {
-          lastCreditError = error;
-          const affordableTokens = getAffordableOutputTokens(error);
-          if (affordableTokens && (!maxTokens || affordableTokens < maxTokens)) {
-            maxTokens = affordableTokens;
-            continue;
-          }
-          if (isPromptTokenLimitError(error) && !compactPrompt) {
-            compactPrompt = true;
-            continue;
-          }
-          throw error;
-        }
-      }
+      return createResearchResponse(
+        messages,
+        userId,
+        true,
+        false,
+        thinkMode,
+        thinkOutputTokenLimit,
+        country,
+        userName,
+        userMemory,
+      );
     } else {
       return createResearchResponse(
         messages,
         userId,
+        false,
         body.generatedImageHandled === true,
         thinkMode,
         thinkOutputTokenLimit,
