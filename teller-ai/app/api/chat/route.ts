@@ -53,6 +53,8 @@ const ANSWER_CHOICES_PROMPT =
 
 const QUESTION_START =
   /^(?:what|why|when|where|who|whom|whose|which|how|can|could|would|should|do|does|did|is|are|am|was|were|will|shall|have|has|had)\b/i;
+const MAX_TOOL_CALLS_PER_REQUEST = 12;
+const MAX_TOOL_TURNS_PER_REQUEST = 8;
 
 function summarizeComposioSchema(toolSlug: string, schema: unknown) {
   if (!isRecord(schema)) return `${toolSlug}: use the returned Composio tool schema exactly.`;
@@ -298,7 +300,7 @@ async function runParallelResearch(
   const composioDiscoveryTools = composioOpenAITools.filter((tool) => (
     tool.function.name === "COMPOSIO_SEARCH_TOOLS"
   ));
-  const maxTurns = composioDiscoveryTools.length > 0 ? 6 : 5;
+  const maxTurns = MAX_TOOL_TURNS_PER_REQUEST;
   const tools = [
     ...parallelTools,
     ...composioOpenAITools,
@@ -344,6 +346,8 @@ async function runParallelResearch(
               ? ["This is the Composio discovery pass. Use COMPOSIO_SEARCH_TOOLS to find exact connected-app actions requested by the user. For requests to create, compile, convert, or export documents or files (including DOCX, PDF, spreadsheets, and presentations), search for matching actions in the user's current Tools-page app catalog before concluding a file cannot be produced. Do not execute actions or write the final response; the NVIDIA chat model will continue after receiving your discovery results."]
               : []),
             "Treat the user's message as possibly containing several independent intents. Identify and complete every relevant part using the available Composio app tools and Parallel research tools; do not stop after handling only one part.",
+            "Act as a productivity assistant: discover and use the exact tools needed to achieve the user's requested outcomes, use results to drive dependent actions, and verify each claimed result. Avoid unnecessary calls, but do not answer with instructions for the user when an available tool can perform the task.",
+            "For tasks mixing research and connected-app changes, finish useful read-only research before requesting confirmation for write actions. Keep batches that need confirmation separate from unrelated tool calls so no independent work is skipped when the confirmation gate pauses execution.",
             ...(generatedImageHandled
               ? ["The app has already generated the requested image. Do not generate or edit another image; complete the other parts of the user's request."]
               : []),
@@ -404,8 +408,8 @@ async function runParallelResearch(
       completed = true;
       break;
     }
-    if (toolCallCount + toolCalls.length > 5) {
-      throw new Error("Teller AI reached the maximum number of web lookups for one request.");
+    if (toolCallCount + toolCalls.length > MAX_TOOL_CALLS_PER_REQUEST) {
+      throw new Error("Grope reached the maximum number of tool calls for one request.");
     }
 
     toolMessages.push({
@@ -575,7 +579,7 @@ async function runParallelResearch(
     }
   }
   if (!completed) {
-    throw new Error("Teller AI reached the maximum number of web lookup steps for one request.");
+    throw new Error("Grope reached the maximum number of tool steps for one request.");
   }
   if (reply === null) {
     throw new Error("Teller AI could not fit this request within the available credits.");
