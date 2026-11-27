@@ -38,6 +38,65 @@ export type ComposioPendingAction = {
   }>;
 };
 
+const ESSENTIAL_TOOLKIT_SLUGS = new Set([
+  "gmail",
+  "googledrive",
+  "googlecalendar",
+  "googledocs",
+  "googlesheets",
+  "googlemaps",
+  "notion",
+  "slack",
+  "microsoftteams",
+  "outlook",
+  "onedrive",
+  "dropbox",
+  "trello",
+  "asana",
+  "jira",
+  "confluence",
+  "linear",
+  "github",
+  "gitlab",
+  "figma",
+  "canva",
+  "stripe",
+  "paypal",
+  "hubspot",
+  "salesforce",
+  "airtable",
+  "zoom",
+  "calendly",
+  "mailchimp",
+  "intercom",
+  "zendesk",
+  "shopify",
+  "twitter",
+  "linkedin",
+  "spotify",
+  "youtube",
+  "typeform",
+  "monday",
+  "clickup",
+  "todoist",
+  "discord",
+  "googlemeet",
+  "googleforms",
+  "x",
+  "facebook",
+  "instagram",
+  "reddit",
+  "wordpress",
+]);
+
+function normalizeToolkitKey(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function isEssentialToolkit(toolkit: ComposioToolkit) {
+  return ESSENTIAL_TOOLKIT_SLUGS.has(normalizeToolkitKey(toolkit.slug));
+}
+
 export class ComposioError extends Error {
   status: number;
 
@@ -354,6 +413,12 @@ export async function listComposioToolkits(userId: string) {
       throw new ComposioError("Composio returned too many connector pages.");
     }
   } while (cursor);
+
+  toolkits.splice(
+    0,
+    toolkits.length,
+    ...toolkits.filter(isEssentialToolkit),
+  );
 
   const autoInstalledDocumentToolkits = new Set([
     "google_drive",

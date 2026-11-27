@@ -3003,7 +3003,7 @@ export default function ChatWindow() {
               <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <h1 id="tools-heading" className="text-2xl font-semibold text-white">Tools</h1>
-                  <p className="mt-1 text-sm text-neutral-400">Browse app connectors and manage account connections.</p>
+                  <p className="mt-1 text-sm text-neutral-400">48 essential app connectors for account connections.</p>
                 </div>
                 <button
                   type="button"

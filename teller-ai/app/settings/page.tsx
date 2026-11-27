@@ -1,7 +1,7 @@
 "use client";
 
 import { useAppAuth } from "@/components/Auth0Provider";
-import { CalendarDays, Check, Download, LoaderCircle, Mail, Trash2, Upload } from "lucide-react";
+import { CalendarDays, Check, LoaderCircle, Mail, Trash2, Upload } from "lucide-react";
 import { useEffect, useState, type ChangeEvent, type FormEvent } from "react";
 import PayPalUpgradeButton from "@/components/PayPalUpgradeButton";
 import { COUNTRY_OPTIONS, PHONE_CODE_OPTIONS, countryFlag, splitInternationalPhone } from "@/lib/country-options";
@@ -49,8 +49,6 @@ export default function AccountSettingsPage() {
   const [isPreparingVoiceSample, setIsPreparingVoiceSample] = useState(false);
   const [voiceSampleMessage, setVoiceSampleMessage] = useState("");
   const [voiceSampleError, setVoiceSampleError] = useState("");
-  const [isExportingAccounts, setIsExportingAccounts] = useState(false);
-  const [accountExportError, setAccountExportError] = useState("");
   const [deleteAccountConfirmation, setDeleteAccountConfirmation] = useState("");
   const [deleteAccountConfirmationTarget, setDeleteAccountConfirmationTarget] = useState<string | null>(null);
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
@@ -365,34 +363,6 @@ export default function AccountSettingsPage() {
     }
   }
 
-  async function exportAccounts() {
-    setIsExportingAccounts(true);
-    setAccountExportError("");
-    try {
-      const token = await getAccessTokenSilently();
-      const response = await fetch("/api/admin/accounts", {
-        headers: { Authorization: `Bearer ${token}` },
-        cache: "no-store",
-      });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "Could not export the account list.");
-
-      const blob = new Blob([JSON.stringify(result, null, 2)], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `teller-accounts-${new Date().toISOString().slice(0, 10)}.json`;
-      document.body.append(link);
-      link.click();
-      link.remove();
-      window.setTimeout(() => URL.revokeObjectURL(url), 0);
-    } catch (error) {
-      setAccountExportError(error instanceof Error ? error.message : "Could not export the account list.");
-    } finally {
-      setIsExportingAccounts(false);
-    }
-  }
-
   async function deleteAccount() {
     setIsDeletingAccount(true);
     setDeleteAccountError("");
@@ -604,29 +574,6 @@ export default function AccountSettingsPage() {
         )}
 
         <div className="mt-8 space-y-6">
-          {isAuthenticated && canManageVoiceSample && (
-            <section className="rounded-xl border border-neutral-800 bg-neutral-950 p-5">
-              <h2 className="text-lg font-semibold">Registered account list</h2>
-              <p className="mt-2 text-sm text-neutral-400">
-                Download a JSON file with each registered account&apos;s email, name, plan, country, phone number, and account update time.
-              </p>
-              <div className="mt-4 flex flex-wrap items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => void exportAccounts()}
-                  disabled={isExportingAccounts}
-                  className="inline-flex items-center gap-2 rounded-lg bg-white px-4 py-2 text-sm font-medium text-black disabled:cursor-wait disabled:opacity-60"
-                >
-                  {isExportingAccounts
-                    ? <LoaderCircle aria-hidden="true" className="h-4 w-4 animate-spin" />
-                    : <Download aria-hidden="true" className="h-4 w-4" />}
-                  {isExportingAccounts ? "Preparing export..." : "Download account list"}
-                </button>
-                {accountExportError && <span role="alert" className="text-sm text-red-400">{accountExportError}</span>}
-              </div>
-            </section>
-          )}
-
           <section className="rounded-xl border border-neutral-800 bg-neutral-950 p-5">
             <h2 className="text-lg font-semibold">Personal details</h2>
             <div className="mt-4 space-y-4 text-sm text-neutral-300">
