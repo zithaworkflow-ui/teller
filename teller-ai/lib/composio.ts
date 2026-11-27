@@ -117,6 +117,8 @@ export async function createComposioChatSession(userId: string) {
 
 export async function listComposioChatTools(sessionId: string) {
   const tools: ComposioSessionTool[] = [];
+  const toolSlugs = new Set<string>();
+  const seenCursors = new Set<string>();
   let cursor: string | null = null;
   let pageCount = 0;
 
@@ -134,9 +136,11 @@ export async function listComposioChatTools(sessionId: string) {
       if (
         !isRecord(item) ||
         typeof item.slug !== "string" ||
+        toolSlugs.has(item.slug) ||
         !CHAT_META_TOOLS.has(item.slug) ||
         !isRecord(item.input_parameters)
       ) return [];
+      toolSlugs.add(item.slug);
       return [{
         slug: item.slug,
         description: typeof item.description === "string" ? item.description : "",
@@ -147,9 +151,11 @@ export async function listComposioChatTools(sessionId: string) {
     const nextCursor = typeof payload.next_cursor === "string" && payload.next_cursor
       ? payload.next_cursor
       : null;
-    if (nextCursor === cursor) {
-      throw new ComposioError("Composio returned an invalid session tool cursor.");
+    if (nextCursor && seenCursors.has(nextCursor)) {
+      console.warn("Composio repeated a session tool cursor; stopping tool pagination.");
+      break;
     }
+    if (nextCursor) seenCursors.add(nextCursor);
     cursor = nextCursor;
     pageCount += 1;
     if (pageCount > 10) throw new ComposioError("Composio returned too many session tool pages.");

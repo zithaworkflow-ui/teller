@@ -341,7 +341,7 @@ async function runParallelResearch(
           signal,
           systemPrompt: [
             ...(isComposioDiscoveryTurn
-              ? ["This is the Composio discovery pass. Use COMPOSIO_SEARCH_TOOLS to find exact connected-app actions requested by the user. Do not execute actions or write the final response; the NVIDIA chat model will continue after receiving your discovery results."]
+              ? ["This is the Composio discovery pass. Use COMPOSIO_SEARCH_TOOLS to find exact connected-app actions requested by the user. For requests to create, compile, convert, or export documents or files (including DOCX, PDF, spreadsheets, and presentations), search for matching actions in the user's current Tools-page app catalog before concluding a file cannot be produced. Do not execute actions or write the final response; the NVIDIA chat model will continue after receiving your discovery results."]
               : []),
             "Treat the user's message as possibly containing several independent intents. Identify and complete every relevant part using the available Composio app tools and Parallel research tools; do not stop after handling only one part.",
             ...(generatedImageHandled
@@ -353,11 +353,18 @@ async function runParallelResearch(
             composioSessionId
               ? [
                   discoveredComposioTools.size > 0
-                    ? "Treat user references to add-ons, apps, integrations, connectors, or skills as connected-app tasks. Continue using the tools and schemas discovered in the Composio handoff. For each requested app action, call COMPOSIO_MULTI_EXECUTE_TOOL with the exact discovered tool_slug and arguments; do not stop after discovery or merely describe how the user could do it. Search again only if another requested app task is not covered. Reuse the returned session identifier."
-                    : "Treat user references to add-ons, apps, integrations, connectors, or skills as connected-app tasks. Use Composio for them: call COMPOSIO_SEARCH_TOOLS first with atomic queries for every requested app task, then call COMPOSIO_MULTI_EXECUTE_TOOL with the exact returned tool_slug and arguments. Reuse its session identifier for schemas, connection management, and execution.",
+                    ? "Treat user references to add-ons, apps, integrations, connectors, or skills as connected-app tasks. Continue using the tools and schemas discovered in the Composio handoff. For each requested app action, call COMPOSIO_MULTI_EXECUTE_TOOL with the exact discovered tool_slug and arguments; do not stop after discovery or merely describe how the user could do it. For document and file tasks, use matching discovered actions from the user's Tools-page app catalog rather than assuming the chat model cannot produce them. Search again only if another requested app task is not covered. Reuse the returned session identifier."
+                    : "Treat user references to add-ons, apps, integrations, connectors, or skills as connected-app tasks. Use Composio for them: call COMPOSIO_SEARCH_TOOLS first with atomic queries for every requested app task, including document or file creation, conversion, and export when relevant; then call COMPOSIO_MULTI_EXECUTE_TOOL with the exact returned tool_slug and arguments. Reuse its session identifier for schemas, connection management, and execution.",
                   "Do not claim you cannot access or summarize private Gmail or other connected-app data merely because it is private. Use only data returned by this authorized Composio session. If the requested app is not connected, use COMPOSIO_MANAGE_CONNECTIONS and explain that authorization is required. Do not ask the user to paste private messages solely because they are private, and never claim an action or summary is complete without successful tool results.",
                 ].join(" ")
               : "Connected-app tools are unavailable until the user signs in and Composio is configured. Be transparent that the connector must be configured or authorized before you can access app data; do not claim to have completed app actions or ask the user to paste private messages solely because they are private.",
+            discoveredComposioToolkits.size > 0
+              ? [
+                  "Toolkits discovered from the user's current Tools-page app catalog:",
+                  ...Array.from(discoveredComposioToolkits, (toolkit) => `- ${toolkit}`),
+                  "Treat these results and the discovered action schemas as the authoritative app capabilities for this request. Do not claim a matching capability is unavailable without checking these results and, if needed, searching again.",
+                ].join("\n")
+              : "",
             activeComposioSkills.size > 0
               ? [
                   "Active Composio connector skills:",
