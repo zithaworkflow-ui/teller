@@ -9,6 +9,18 @@ import {
 
 export const runtime = "nodejs";
 
+function isGoogleMapsEmbedUrl(value: unknown): value is string {
+  if (typeof value !== "string" || value.length > 4096) return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" &&
+      url.hostname === "www.google.com" &&
+      url.pathname.startsWith("/maps/embed");
+  } catch {
+    return false;
+  }
+}
+
 type StoredFile = {
   name: string;
   type: string;
@@ -27,6 +39,9 @@ function sanitizeHistory(value: unknown[]) {
       agent: item.agent === "cyber" || item.agent === "maps" ? item.agent : "teller",
       ...(typeof item.mapQuery === "string"
         ? { mapQuery: item.mapQuery.slice(0, 500) }
+        : {}),
+      ...(isGoogleMapsEmbedUrl(item.mapEmbedUrl)
+        ? { mapEmbedUrl: item.mapEmbedUrl }
         : {}),
       updatedAt: typeof item.updatedAt === "number" ? item.updatedAt : Date.now(),
       messages: Array.isArray(item.messages)

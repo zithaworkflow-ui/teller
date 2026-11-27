@@ -55,6 +55,66 @@ const QUESTION_START =
   /^(?:what|why|when|where|who|whom|whose|which|how|can|could|would|should|do|does|did|is|are|am|was|were|will|shall|have|has|had)\b/i;
 const MAX_TOOL_CALLS_PER_REQUEST = 12;
 const MAX_TOOL_TURNS_PER_REQUEST = 8;
+const GOOGLE_MAPS_EMBED_TOOL_SLUG = "GOOGLE_MAPS_MAPS_EMBED_API";
+
+function getGoogleMapsApiKeyArgument(schema: unknown) {
+  if (!isRecord(schema)) return null;
+  const parameters = isRecord(schema.input_parameters)
+    ? schema.input_parameters
+    : isRecord(schema.parameters)
+      ? schema.parameters
+      : null;
+  const properties = parameters && isRecord(parameters.properties) ? parameters.properties : null;
+  return properties
+    ? Object.keys(properties).find((key) => /^(?:api_?key|google_?maps_?api_?key)$/i.test(key)) || null
+    : null;
+}
+
+function extractGoogleMapsEmbedUrl(value: unknown): string | null {
+  const visit = (item: unknown, depth = 0): string | null => {
+    if (depth > 10) return null;
+    if (typeof item === "string") {
+      try {
+        const parsed: unknown = JSON.parse(item);
+        const nestedUrl = visit(parsed, depth + 1);
+        if (nestedUrl) return nestedUrl;
+      } catch {
+        // Tool results may contain plain text or iframe HTML rather than JSON.
+      }
+      const candidates = item.replaceAll("&amp;", "&").match(
+        /https:\/\/www\.google\.com\/maps\/embed(?:\/v1)?\/?[^\s"'<>`]*/gi,
+      ) || [];
+      for (const candidate of candidates) {
+        try {
+          const url = new URL(candidate.replace(/[),.;!?}\]]+$/g, ""));
+          if (
+            url.protocol === "https:" &&
+            url.hostname === "www.google.com" &&
+            url.pathname.startsWith("/maps/embed")
+          ) return url.toString();
+        } catch {
+          continue;
+        }
+      }
+      return null;
+    }
+    if (Array.isArray(item)) {
+      for (const entry of item) {
+        const nestedUrl = visit(entry, depth + 1);
+        if (nestedUrl) return nestedUrl;
+      }
+      return null;
+    }
+    if (isRecord(item)) {
+      for (const entry of Object.values(item)) {
+        const nestedUrl = visit(entry, depth + 1);
+        if (nestedUrl) return nestedUrl;
+      }
+    }
+    return null;
+  };
+  return visit(value);
+}
 
 function summarizeComposioSchema(toolSlug: string, schema: unknown) {
   if (!isRecord(schema)) return `${toolSlug}: use the returned Composio tool schema exactly.`;
@@ -289,6 +349,7 @@ async function runParallelResearch(
   const composioToolSlugs = new Set(composioTools.map((tool) => tool.slug));
   const discoveredComposioTools = new Set<string>();
   const discoveredComposioToolkits = new Set<string>();
+  const discoveredComposioSchemas = new Map<string, unknown>();
   const activeComposioSkills = new Map<string, string>();
   const composioOpenAITools = composioTools.map((tool) => ({
     type: "function",
@@ -313,6 +374,7 @@ async function runParallelResearch(
   let completed = false;
   let toolCallCount = 0;
   let composioWorkflowId: string | null = null;
+  let googleMapsEmbedUrl: string | null = null;
   let reply: string | null = null;
 
   const publishSites = (value: unknown) => {
@@ -346,13 +408,16 @@ async function runParallelResearch(
             ...(isComposioDiscoveryTurn
               ? [
                   isMapsAgent
-                    ? "This is the Composio discovery pass for CyberMaps. Use COMPOSIO_SEARCH_TOOLS to discover Google Maps actions from the user's Tools-page connectors for the requested place, address, directions, or route. Do not execute actions or write the final response; the NVIDIA chat model will continue after receiving your discovery results."
+                    ? `This is the Composio discovery pass for CyberMaps. Use COMPOSIO_SEARCH_TOOLS to discover Google Maps actions from the user's Tools-page connectors for the requested place, address, directions, or route.${process.env.NEXT_PUBLIC_GOOGLE_MAPS_EMBED_API_KEY ? " Include GOOGLE_MAPS_MAPS_EMBED_API when available so the interactive map can use the URL returned by Composio." : ""} Do not execute actions or write the final response; the NVIDIA chat model will continue after receiving your discovery results.`
                     : "This is the Composio discovery pass. Use COMPOSIO_SEARCH_TOOLS to find exact connected-app actions requested by the user. For requests to create, compile, convert, or export documents or files (including DOCX, PDF, spreadsheets, and presentations), search for matching actions in the user's current Tools-page app catalog before concluding a file cannot be produced. Do not execute actions or write the final response; the NVIDIA chat model will continue after receiving your discovery results.",
                 ]
               : []),
             ...(isMapsAgent
               ? [
                   "You are CyberMaps. For place lookup, address details, and directions, use discovered Google Maps Composio actions first and ground your answer in their results. Do not invent places, route details, travel times, traffic, or closures. If Google Maps actions are not available, say so plainly and direct the user to the interactive Google Maps panel or its open-in-Maps link; do not imply you queried Google Maps.",
+                  process.env.NEXT_PUBLIC_GOOGLE_MAPS_EMBED_API_KEY
+                    ? "When the discovered GOOGLE_MAPS_MAPS_EMBED_API action is available, call it with the requested place or route and use its returned embed URL. The server supplies the configured key; do not ask the user to paste a key or invent an embed URL."
+                    : "The app has no configured Maps Embed API key, so do not call GOOGLE_MAPS_MAPS_EMBED_API. Use the existing direct Google Maps link as the map fallback.",
                   "If the user’s Google Maps connector is not connected, use COMPOSIO_MANAGE_CONNECTIONS when available and explain that they can authorize Google Maps from the chat Tools page. The embedded Google Maps panel remains available independently of the Composio connector.",
                 ]
               : []),
@@ -494,7 +559,18 @@ async function runParallelResearch(
               arguments: item.arguments,
             };
           });
+          const googleMapsEmbedApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_EMBED_API_KEY?.trim();
+          if (isMapsAgent && googleMapsEmbedApiKey) {
+            actions.forEach((action) => {
+              if (action.toolSlug !== GOOGLE_MAPS_EMBED_TOOL_SLUG) return;
+              const keyArgument = getGoogleMapsApiKeyArgument(
+                discoveredComposioSchemas.get(action.toolSlug),
+              );
+              if (keyArgument) action.arguments[keyArgument] = googleMapsEmbedApiKey;
+            });
+          }
           const readOnlyResults = await Promise.all(actions.map(async (action) => {
+            if (isMapsAgent && action.toolSlug === GOOGLE_MAPS_EMBED_TOOL_SLUG) return true;
             try {
               return await isComposioToolReadOnly(action.toolSlug);
             } catch {
@@ -527,6 +603,14 @@ async function runParallelResearch(
           toolArguments,
         );
         if (
+          isMapsAgent &&
+          toolCall.function.name === "COMPOSIO_MULTI_EXECUTE_TOOL" &&
+          Array.isArray(toolArguments.tools) &&
+          toolArguments.tools.some((item) => isRecord(item) && item.tool_slug === GOOGLE_MAPS_EMBED_TOOL_SLUG)
+        ) {
+          googleMapsEmbedUrl = extractGoogleMapsEmbedUrl(result) || googleMapsEmbedUrl;
+        }
+        if (
           toolCall.function.name === "COMPOSIO_SEARCH_TOOLS" ||
           toolCall.function.name === "COMPOSIO_GET_TOOL_SCHEMAS"
         ) {
@@ -543,6 +627,7 @@ async function runParallelResearch(
         if (toolCall.function.name === "COMPOSIO_SEARCH_TOOLS") {
           const toolSchemas = isRecord(result.tool_schemas) ? result.tool_schemas : {};
           Object.keys(toolSchemas).forEach((slug) => discoveredComposioTools.add(slug));
+          Object.entries(toolSchemas).forEach(([slug, schema]) => discoveredComposioSchemas.set(slug, schema));
           extractComposioSkills(result).forEach((skill) => {
             const slug = skill.split(":", 1)[0];
             activeComposioSkills.set(slug, `- ${skill}`);
@@ -600,7 +685,7 @@ async function runParallelResearch(
   if (reply === null) {
     throw new Error("Teller AI could not fit this request within the available credits.");
   }
-  return { reply, imageSearchResults };
+  return { reply, imageSearchResults, googleMapsEmbedUrl };
 }
 
 function getChatStreamErrorMessage(error: unknown) {
@@ -678,6 +763,7 @@ function createResearchResponse(
             ...(result.imageSearchResults.length > 0
               ? { imageSearchResults: result.imageSearchResults }
               : {}),
+            ...(result.googleMapsEmbedUrl ? { mapEmbedUrl: result.googleMapsEmbedUrl } : {}),
           },
         });
       } catch (error) {

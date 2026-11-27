@@ -7,7 +7,6 @@ import {
   ArrowUp,
   ArrowLeft,
   BrainCircuit,
-  Camera,
   CalendarDays,
   Check,
   Download,
@@ -63,6 +62,7 @@ type ChatResponsePayload = {
   usageCount?: number | null;
   choices?: unknown;
   imageSearchResults?: unknown;
+  mapEmbedUrl?: unknown;
   error?: string;
   memoryAction?: boolean;
   pendingAction?: unknown;
@@ -97,6 +97,7 @@ type HistoryItem = {
   title: string;
   agent?: AgentMode;
   mapQuery?: string;
+  mapEmbedUrl?: string | null;
   messages: Message[];
   updatedAt: number;
 };
@@ -278,6 +279,18 @@ function getMapEmbedUrl(query: string, apiKey: string) {
     mapUrl.searchParams.set("q", mapRequest.destination);
   }
   return mapUrl.toString();
+}
+
+function isGoogleMapsEmbedUrl(value: unknown): value is string {
+  if (typeof value !== "string" || value.length > 4096) return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" &&
+      url.hostname === "www.google.com" &&
+      url.pathname.startsWith("/maps/embed");
+  } catch {
+    return false;
+  }
 }
 
 function getGoogleMapsLink(query: string) {
@@ -844,7 +857,6 @@ export default function ChatWindow() {
   const [imageEditPrompt, setImageEditPrompt] = useState("");
   const promptInputRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const [isAttachmentMenuOpen, setIsAttachmentMenuOpen] = useState(false);
   const [speechError, setSpeechError] = useState("");
   const [isRecording, setIsRecording] = useState(false);
@@ -1234,6 +1246,7 @@ export default function ChatWindow() {
         title: existing?.title || "New chat",
         agent: activeAgent,
         ...(activeMapQuery ? { mapQuery: activeMapQuery } : {}),
+        ...(typeof existing?.mapEmbedUrl === "string" ? { mapEmbedUrl: existing.mapEmbedUrl } : {}),
         messages,
         updatedAt: Date.now(),
       };
@@ -1677,7 +1690,7 @@ export default function ChatWindow() {
   function updateHistoryMessages(
     historyId: string | null,
     nextMessages: Message[],
-    updates: Partial<Pick<HistoryItem, "agent" | "mapQuery">> = {},
+    updates: Partial<Pick<HistoryItem, "agent" | "mapQuery" | "mapEmbedUrl">> = {},
   ) {
     if (!historyId) return;
     const updatedAt = Date.now();
@@ -1727,7 +1740,7 @@ export default function ChatWindow() {
         requestHistoryId,
         updatedMessages,
         requestAgent === "maps" && !getExplicitMemoryRequest(userMessage.content)
-          ? { agent: requestAgent, mapQuery: userMessage.content }
+          ? { agent: requestAgent, mapQuery: userMessage.content, mapEmbedUrl: null }
           : { agent: requestAgent },
       );
     }
@@ -2088,7 +2101,12 @@ export default function ChatWindow() {
         };
         const nextMessages = [...updatedMessages, assistantMessage];
         if (activeHistoryIdRef.current === requestHistoryId) setMessages(nextMessages);
-        updateHistoryMessages(requestHistoryId, nextMessages, { agent: requestAgent });
+        updateHistoryMessages(requestHistoryId, nextMessages, {
+          agent: requestAgent,
+          ...(requestAgent === "maps" && isGoogleMapsEmbedUrl(data.mapEmbedUrl)
+            ? { mapEmbedUrl: data.mapEmbedUrl }
+            : {}),
+        });
       } else {
         const nextMessages: Message[] = [
           ...updatedMessages,
@@ -2639,6 +2657,7 @@ export default function ChatWindow() {
   const modeHistories = histories.filter((history) => (
     (history.agent === "cyber" || history.agent === "maps" ? history.agent : "teller") === activeAgent
   ));
+  const activeMapEmbedUrl = histories.find((history) => history.id === activeHistoryId)?.mapEmbedUrl;
   const activeAgentName = activeAgent === "cyber"
     ? "CyberMail"
     : activeAgent === "maps"
@@ -3348,11 +3367,15 @@ export default function ChatWindow() {
                     )}
                   </div>
                 </div>
-                {activeMapQuery && GOOGLE_MAPS_EMBED_API_KEY ? (
+                {activeMapQuery && (
+                  isGoogleMapsEmbedUrl(activeMapEmbedUrl) || GOOGLE_MAPS_EMBED_API_KEY
+                ) ? (
                   <iframe
-                    key={`${activeHistoryId || "new"}-${activeMapQuery}`}
+                    key={`${activeHistoryId || "new"}-${activeMapQuery}-${activeMapEmbedUrl || ""}`}
                     title={`Interactive map for ${parseMapRequest(activeMapQuery).destination}`}
-                    src={getMapEmbedUrl(activeMapQuery, GOOGLE_MAPS_EMBED_API_KEY)}
+                    src={isGoogleMapsEmbedUrl(activeMapEmbedUrl)
+                      ? activeMapEmbedUrl
+                      : getMapEmbedUrl(activeMapQuery, GOOGLE_MAPS_EMBED_API_KEY)}
                     className="h-[min(55vh,480px)] min-h-[300px] w-full border-0 bg-neutral-900"
                     loading="lazy"
                     allowFullScreen
@@ -3840,15 +3863,6 @@ export default function ChatWindow() {
                     disabled={!hasSession || loading}
                     onChange={handleFileSelection}
                   />
-                  <input
-                    ref={cameraInputRef}
-                    type="file"
-                    accept="image/*"
-                    capture="environment"
-                    className="hidden"
-                    disabled={!hasSession || loading}
-                    onChange={handleFileSelection}
-                  />
                   <button
                     type="button"
                     onClick={() => setIsAttachmentMenuOpen((open) => !open)}
@@ -3874,18 +3888,6 @@ export default function ChatWindow() {
                       >
                         <Paperclip size={16} aria-hidden="true" />
                         Upload a file
-                      </button>
-                      <button
-                        type="button"
-                        role="menuitem"
-                        onClick={() => {
-                          setIsAttachmentMenuOpen(false);
-                          cameraInputRef.current?.click();
-                        }}
-                        className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-neutral-200 transition hover:bg-neutral-800"
-                      >
-                        <Camera size={16} aria-hidden="true" />
-                        Take a photo
                       </button>
                     </div>
                   )}

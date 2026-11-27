@@ -80,11 +80,11 @@ CyberMail treats retrieved email and calendar content as untrusted input. Users 
 
 Choose CyberMaps from the Mode menu in the chat prompt. Connect the Google Maps add-on from the chat **Tools** page to let CyberMaps discover and call Google Maps actions through Composio for place and directions requests, such as “directions from Cape Town Station to Table Mountain by transit.” The NVIDIA chat model uses the discovered Google Maps action and its results; it does not invent route details. The app also embeds an interactive Google Maps search or directions map and stores the latest map request with the CyberMaps chat.
 
-To enable the embedded map:
+To enable the interactive map:
 
 1. Enable the **Maps Embed API** in the Google Cloud project.
 2. Create an API key and restrict it to the Maps Embed API and your app's HTTP referrers.
-3. Set `NEXT_PUBLIC_GOOGLE_MAPS_EMBED_API_KEY` in `.env.local`. This key is intentionally visible in the browser for the embed request, so restrict it in Google Cloud; do not use an unrestricted key.
+3. Set `NEXT_PUBLIC_GOOGLE_MAPS_EMBED_API_KEY` in `.env.local`. CyberMaps passes this configured key to Composio's `GOOGLE_MAPS_MAPS_EMBED_API` action, which returns the iframe URL. If Composio does not return an embed URL, the app falls back to constructing the embed URL directly from the same key.
 
 Without the key, CyberMaps still provides a link to open the requested search or route in Google Maps. The embedded map works independently of the Composio connector; connecting Google Maps in Tools enables the assistant's Google Maps lookups. The chat assistant does not claim live traffic or route estimates unless returned by an available tool.
 
