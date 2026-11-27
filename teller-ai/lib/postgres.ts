@@ -242,7 +242,7 @@ async function ensureCyberAgentSchema() {
 export async function saveGoogleOAuthState(
   stateHash: string,
   userId: string,
-  returnTo: "/settings" | "/chat?agent=cyber" = "/chat?agent=cyber",
+  returnTo: "/settings" | "/chat" = "/chat",
 ) {
   await ensureCyberAgentSchema();
   await getCyberAgentPool().query(

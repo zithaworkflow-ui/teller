@@ -663,9 +663,9 @@ export default function AccountSettingsPage() {
           <section className="rounded-xl border border-neutral-800 bg-neutral-950 p-5">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
-                <h2 className="text-lg font-semibold">CyberMail Google Calendar account</h2>
+                <h2 className="text-lg font-semibold">Grope Google Calendar account</h2>
                 <p className="mt-2 max-w-2xl text-sm text-neutral-400">
-                  Connect Google Calendar here to review events and create confirmed events. Connect Gmail separately from the chat Tools page; CyberMail creates drafts only after your confirmation and never sends email.
+                  Google Calendar is optional for Grope. Connect it here to review events and create events after confirmation. Connect Gmail separately from the chat Tools page; Grope can create drafts after your confirmation but never sends email.
                 </p>
                 <div className="mt-3 flex flex-wrap gap-3 text-xs text-neutral-400">
                   <span className="inline-flex items-center gap-1.5"><Mail size={14} aria-hidden="true" /> Gmail via Composio in Tools</span>
@@ -732,7 +732,7 @@ export default function AccountSettingsPage() {
                 <div>
                   <h2 className="text-lg font-semibold">Saved AI memory</h2>
                   <p className="mt-2 max-w-2xl text-sm text-neutral-400">
-                    Only details you add here or explicitly ask Teller to remember are saved. They can personalize future chats across Teller, CyberMaps, and CyberMail. Review or delete them at any time.
+                    Only details you add here or explicitly ask Teller to remember are saved. They can personalize future chats across Teller, CyberMaps, and Grope. Review or delete them at any time.
                   </p>
                 </div>
                 {userMemories.length > 0 && (

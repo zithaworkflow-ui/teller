@@ -201,7 +201,7 @@ export async function disconnectGoogleAccount(userId: string) {
 
 export async function getGoogleAccessToken(userId: string) {
   const connection = await getGoogleConnection(userId);
-  if (!connection) throw new Error("Connect Google Calendar to use CyberMail's Calendar tools.");
+  if (!connection) throw new Error("Connect Google Calendar to use Grope's Calendar tools.");
   const tokens = decryptTokens(connection.encryptedTokens);
   if (tokens.expiresAt > Date.now() + 60_000) return tokens.accessToken;
 
@@ -282,7 +282,7 @@ async function initializeGmailMcp(accessToken: string) {
     params: {
       protocolVersion: MCP_PROTOCOL_VERSION,
       capabilities: {},
-      clientInfo: { name: "Teller CyberMail", version: "1.0.0" },
+      clientInfo: { name: "Teller Grope", version: "1.0.0" },
     },
   });
   if (!initialized.response) throw new Error("Gmail MCP did not complete initialization.");
@@ -327,7 +327,7 @@ export async function callGmailTool(
   args: Record<string, unknown>,
 ) {
   if (!["gmail.search_threads", "gmail.get_thread", "gmail.create_draft"].includes(toolName)) {
-    throw new Error("That Gmail action is not enabled in CyberMail.");
+    throw new Error("That Gmail action is not enabled in Grope.");
   }
   const sessionId = await initializeGmailMcp(accessToken);
   const response = await postMcpMessage(accessToken, {
@@ -369,7 +369,7 @@ export const CYBER_CALENDAR_TOOLS = [
     type: "function",
     function: {
       name: "calendar_create_event",
-      description: "Propose creating a calendar event. CyberMail always asks the user to confirm before creating it.",
+      description: "Propose creating a calendar event. Grope always asks the user to confirm before creating it.",
       parameters: {
         type: "object",
         properties: {

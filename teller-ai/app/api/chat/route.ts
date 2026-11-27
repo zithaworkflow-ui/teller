@@ -13,6 +13,7 @@ import { getAuthenticatedUserId } from "@/lib/auth0-auth";
 import {
   addUserMemory,
   createComposioPendingAction,
+  createGooglePendingAction,
   getUserAccountData,
   getUserGeneratedImage,
   getUserMemories,
@@ -45,6 +46,14 @@ import {
   type ComposioPendingAction,
   type ComposioSessionTool,
 } from "@/lib/composio";
+import {
+  CYBER_CALENDAR_TOOLS,
+  getGoogleAccessToken,
+  getGoogleConnectionStatus,
+  isGoogleOAuthConfigured,
+  listCalendarEvents,
+  validatePendingGoogleAction,
+} from "@/lib/google-workspace";
 
 export const runtime = "nodejs";
 
@@ -56,6 +65,8 @@ const QUESTION_START =
 const MAX_TOOL_CALLS_PER_REQUEST = 12;
 const MAX_TOOL_TURNS_PER_REQUEST = 8;
 const GOOGLE_MAPS_EMBED_TOOL_SLUG = "GOOGLE_MAPS_MAPS_EMBED_API";
+
+class GropeEmailSendBlockedError extends Error {}
 
 function getGoogleMapsApiKeyArgument(schema: unknown) {
   if (!isRecord(schema)) return null;
@@ -362,10 +373,15 @@ async function runParallelResearch(
   const composioDiscoveryTools = composioOpenAITools.filter((tool) => (
     tool.function.name === "COMPOSIO_SEARCH_TOOLS"
   ));
+  const googleCalendarConnected = userId && isGoogleOAuthConfigured()
+    ? (await getGoogleConnectionStatus(userId)).connected
+    : false;
+  const googleCalendarTools = googleCalendarConnected ? [...CYBER_CALENDAR_TOOLS] : [];
   const maxTurns = MAX_TOOL_TURNS_PER_REQUEST;
   const tools = [
     ...parallelTools,
     ...composioOpenAITools,
+    ...googleCalendarTools,
   ];
   const toolMessages = messages;
   const researchSites = new Set<string>();
@@ -375,7 +391,15 @@ async function runParallelResearch(
   let toolCallCount = 0;
   let composioWorkflowId: string | null = null;
   let googleMapsEmbedUrl: string | null = null;
+  let googleCalendarAccessToken: string | null = null;
   let reply: string | null = null;
+  const getCalendarAccessToken = async () => {
+    if (!userId) throw new Error("Sign in and connect Google Calendar to use calendar tools.");
+    if (!googleCalendarAccessToken) {
+      googleCalendarAccessToken = await getGoogleAccessToken(userId);
+    }
+    return googleCalendarAccessToken;
+  };
 
   const publishSites = (value: unknown) => {
     for (const site of extractResearchSites(value)) {
@@ -423,6 +447,10 @@ async function runParallelResearch(
               : []),
             "Treat the user's message as possibly containing several independent intents. Identify and complete every relevant part using the available Composio app tools and Parallel research tools; do not stop after handling only one part.",
             "Act as a productivity assistant: discover and use the exact tools needed to achieve the user's requested outcomes, use results to drive dependent actions, and verify each claimed result. Avoid unnecessary calls, but do not answer with instructions for the user when an available tool can perform the task.",
+            "Gmail and Google Calendar are optional integrations, not requirements for using Grope. For Gmail, use discovered Composio tools only when the user asks for an email task; never send email, and create drafts only when explicitly requested and after the app's confirmation step. For Google Calendar, use the calendar tools only when they are available; event creation requires the app's confirmation step. If an integration is not connected, explain that only when it is needed and continue any unrelated parts of the request.",
+            googleCalendarConnected
+              ? "Google Calendar is connected; use calendar_list_events for event lookups and calendar_create_event for explicitly requested events."
+              : "The direct Google Calendar connection is not active. You may use a Google Calendar Composio tool only if it is discovered; otherwise, if the user requests calendar work, explain that Google Calendar can optionally be connected in Account Settings or Tools.",
             "For tasks mixing research and connected-app changes, finish useful read-only research before requesting confirmation for write actions. Keep batches that need confirmation separate from unrelated tool calls so no independent work is skipped when the confirmation gate pauses execution.",
             ...(generatedImageHandled
               ? ["The app has already generated the requested image. Do not generate or edit another image; complete the other parts of the user's request."]
@@ -553,6 +581,14 @@ async function runParallelResearch(
             if (!discoveredComposioTools.has(item.tool_slug)) {
               throw new Error("Composio actions must use tools returned by search.");
             }
+            if (
+              /(?:GMAIL|EMAIL)/i.test(item.tool_slug) &&
+              /(?:^|_)SEND(?:_|$)/i.test(item.tool_slug)
+            ) {
+              throw new GropeEmailSendBlockedError(
+                "Grope can search email and create drafts, but it never sends email. Ask it to create a draft instead.",
+              );
+            }
             return {
               toolSlug: item.tool_slug,
               description: item.tool_slug.replaceAll("_", " "),
@@ -650,6 +686,37 @@ async function runParallelResearch(
         continue;
       }
 
+      if (toolCall.function.name === "calendar_list_events") {
+        const rawArguments: unknown = JSON.parse(toolCall.function.arguments);
+        if (!isRecord(rawArguments)) throw new Error("Teller AI returned invalid calendar search details.");
+        const calendarResult = await listCalendarEvents(
+          await getCalendarAccessToken(),
+          rawArguments,
+        );
+        toolMessages.push({
+          role: "tool",
+          tool_call_id: toolCall.id,
+          content: JSON.stringify(calendarResult).slice(0, 18_000),
+        });
+        toolCallCount += 1;
+        continue;
+      }
+
+      if (toolCall.function.name === "calendar_create_event") {
+        if (!userId) throw new Error("Sign in and connect Google Calendar before creating an event.");
+        const rawArguments: unknown = JSON.parse(toolCall.function.arguments);
+        if (!isRecord(rawArguments)) throw new Error("Teller AI returned invalid calendar event details.");
+        const action = validatePendingGoogleAction({
+          type: "calendar.create_event",
+          arguments: rawArguments,
+        });
+        const id = await createGooglePendingAction(userId, action);
+        return {
+          pendingAction: { id, ...action },
+          imageSearchResults,
+        };
+      }
+
       const toolName = mapOpenAIToolNameToParallelTool(toolCall.function.name);
       if (!toolName) throw new Error("Teller AI requested an unsupported Parallel action.");
       const rawArguments: unknown = JSON.parse(toolCall.function.arguments);
@@ -689,6 +756,7 @@ async function runParallelResearch(
 }
 
 function getChatStreamErrorMessage(error: unknown) {
+  if (error instanceof GropeEmailSendBlockedError) return error.message;
   if (error instanceof ParallelMcpError) {
     return "Web and image search are temporarily unavailable. Please try again.";
   }
@@ -746,7 +814,9 @@ function createResearchResponse(
           send({
             type: "complete",
             payload: {
-              reply: "Review the connected-app actions below. Nothing will run until you confirm.",
+              reply: result.pendingAction.type === "composio.multi_execute"
+                ? "Review the connected-app actions below. Nothing will run until you confirm."
+                : "Review the calendar event below. Nothing will be added until you confirm.",
               pendingAction: result.pendingAction,
               usageCount,
             },

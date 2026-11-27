@@ -386,9 +386,6 @@ function getGropeAgentMode(message: string): AgentMode {
   if (/\b(directions?|route|routes|map|maps|nearby|navigation|navigate|distance|driving|walking|cycling|transit|geocode|coordinates?|latitude|longitude)\b/.test(normalized)) {
     return "maps";
   }
-  if (/\b(gmail|email|e-mail|calendar|meeting|appointment|draft|inbox|unread|calendar event|google workspace)\b/.test(normalized)) {
-    return "cyber";
-  }
   return "teller";
 }
 
@@ -1733,7 +1730,7 @@ export default function ChatWindow() {
     let generatedImageAssistantMessage: Message | null = null;
     try {
       if (requestAgent === "cyber") {
-        if (requestFile) throw new Error("CyberMail currently works with Gmail and Calendar, not file attachments. Remove the attachment and try again.");
+        if (requestFile) throw new Error("Grope currently works with Gmail and Calendar, not file attachments. Remove the attachment and try again.");
         if (
           requestThinkMode &&
           monthlyChatCount + THINK_MODE_USAGE_COST > usageLimit &&
@@ -1755,11 +1752,11 @@ export default function ChatWindow() {
           }),
         });
         const data = await response.json();
-        if (!response.ok) throw new Error(data.error || "CyberMail could not complete that request.");
+        if (!response.ok) throw new Error(data.error || "Grope could not complete that request.");
         if (Number.isInteger(data.usageCount)) setMonthlyChatCount(data.usageCount);
         const assistantMessage: Message = {
           role: "assistant",
-          content: typeof data.reply === "string" ? data.reply : "CyberMail completed the request.",
+          content: typeof data.reply === "string" ? data.reply : "Grope completed the request.",
           createdAt: Date.now(),
           ...(isComposioPendingAction(data.pendingAction)
             ? { pendingAction: data.pendingAction }
@@ -2638,7 +2635,7 @@ export default function ChatWindow() {
   ));
   const activeMapEmbedUrl = histories.find((history) => history.id === activeHistoryId)?.mapEmbedUrl;
   const activeAgentName = activeAgent === "cyber"
-    ? "CyberMail"
+    ? "Grope"
     : activeAgent === "maps"
       ? "CyberMaps"
       : "Grope";
@@ -2905,8 +2902,8 @@ export default function ChatWindow() {
                     </span>
                   )}
                   <div className="leading-tight">
-                    <div className="text-sm font-semibold">{activeAgent === "cyber" ? "CyberMail" : "CyberMaps"}</div>
-                    {activeAgent === "cyber" && <div className="text-xs text-neutral-400">Google Workspace assistant</div>}
+                    <div className="text-sm font-semibold">{activeAgent === "cyber" ? "Grope" : "CyberMaps"}</div>
+                    {activeAgent === "cyber" && <div className="text-xs text-neutral-400">Optional Gmail & Calendar tools</div>}
                     {activeAgent === "maps" && <div className="text-xs text-neutral-400">Directions & interactive maps</div>}
                   </div>
                 </>
@@ -3594,7 +3591,7 @@ export default function ChatWindow() {
                 aria-label={isGeneratingImage
                   ? "Creating your image"
                   : activeAgent === "cyber"
-                    ? "CyberMail is working"
+                    ? "Grope is working"
                     : activeAgent === "maps"
                       ? "CyberMaps is working"
                       : "Grope is thinking"}
@@ -3609,7 +3606,7 @@ export default function ChatWindow() {
                   activeAgent === "teller" ? (
                     <NeutronStarLoader />
                   ) : activeAgent === "cyber" ? (
-                    "CyberMail is working..."
+                    "Grope is working..."
                   ) : (
                     "CyberMaps is working..."
                   )

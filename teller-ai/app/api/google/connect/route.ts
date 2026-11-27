@@ -40,7 +40,7 @@ export async function POST(request: Request) {
     const state = createGoogleOAuthState();
     const returnTo = new URL(request.url).searchParams.get("returnTo") === "settings"
       ? "/settings"
-      : "/chat?agent=cyber";
+      : "/chat";
     await saveGoogleOAuthState(hashGoogleOAuthState(state), userId, returnTo);
     return NextResponse.json({ authorizationUrl: createGoogleAuthorizationUrl(state) });
   } catch (error) {

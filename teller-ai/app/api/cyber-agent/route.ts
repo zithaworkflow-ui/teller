@@ -50,7 +50,7 @@ type ChatCompletionMessage = {
 function parseArguments(raw: string): Record<string, unknown> {
   const parsed: unknown = JSON.parse(raw);
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("CyberMail returned invalid action details.");
+    throw new Error("Grope returned invalid action details.");
   }
   return parsed as Record<string, unknown>;
 }
@@ -230,7 +230,7 @@ export async function POST(request: Request) {
 
         if (composioToolSlugs.has(toolCall.function.name)) {
           if (!composioSessionId) {
-            throw new ComposioError("Composio is not available for CyberMail.");
+            throw new ComposioError("Composio is not available for Grope.");
           }
           if (toolCall.function.name === "COMPOSIO_SEARCH_TOOLS") {
             args.session = composioWorkflowId
@@ -340,7 +340,7 @@ export async function POST(request: Request) {
             usageCount,
           });
         } else {
-          throw new Error("CyberMail requested an unsupported action.");
+          throw new Error("Grope requested an unsupported action.");
         }
 
         modelMessages.push({
@@ -355,8 +355,8 @@ export async function POST(request: Request) {
       usageCount: await incrementUsage(),
     });
   } catch (error) {
-    console.error("CyberMail API error:", error);
-    const message = error instanceof Error ? error.message : "CyberMail could not complete that request.";
+    console.error("Grope API error:", error);
+    const message = error instanceof Error ? error.message : "Grope could not complete that request.";
     return NextResponse.json({ error: message }, { status: 502 });
   }
 }
